@@ -163,5 +163,3 @@ function Play()
         end
     end
 end
-
-Play()
