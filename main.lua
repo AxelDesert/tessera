@@ -1,17 +1,44 @@
 local newAnimation = require("animation")
 require("farkle")
+local Player = require("player")
+local FloorManager = require("floor_manager")
 
 local DICE_W, DICE_H = 206, 202
 local GAP = 20
 local ROLL_TIME = 0.8
 local faceFrame = {1, 2, 3, 4, 5, 6}
 
-local anim, dice, font
+local anim, dice, font, bg
 local state = "ready"
-local roundScore, bank, message = 0, 0, "Press SPACE to roll"
+local roundScore, message = 0, "Press SPACE to roll"
+
+local player, fm
+
+local function floorInfo()
+    return ("Floor %d/%d%s | rounds left %d | money $%d"):format(
+        fm.floor, fm.cfg.total_floors,
+        fm:is_boss(fm.floor) and " [BOSS]" or "",
+        fm.rounds_left, player.money)
+end
+
+local function resetDice()
+    for _, d in ipairs(dice) do
+        d.value, d.rolling, d.selected, d.kept = 1, 0, false, false
+    end
+end
+
+local function newGame()
+    player = Player.new({ money = 0 })
+    fm = FloorManager.new(player)
+    fm:start_next_floor()
+    resetDice()
+    roundScore = 0
+    state = "ready"
+    message = "Press SPACE to roll"
+end
 
 function love.load()
-    love.window.setMode(1920, 1080, {resizable=true, vsync=0, minwidth=400, minheight=300})
+    love.window.setMode(720, 480, {resizable=true, vsync=0, minwidth=400, minheight=300})
     font = love.graphics.newFont(28)
     love.graphics.setFont(font)
     bg = love.graphics.newImage("wallpaper.jpg")
@@ -20,6 +47,7 @@ function love.load()
     for i = 1, 6 do
         dice[i] = {value = 1, rolling = 0, selected = false, kept = false}
     end
+    newGame()
 end
 
 local function layout()
@@ -71,6 +99,28 @@ local function rollFree()
     message = ""
 end
 
+local function endRound(points, farkled)
+    local result = fm:submit_round(points)
+    roundScore = 0
+
+    if result == "playing" then
+        if farkled then
+            state, message = "farkled", "FARKLEEEEE !!!  Press SPACE for the next round"
+        else
+            state, message = "ready", "Banked " .. points .. "! Press SPACE to roll"
+        end
+    elseif result == "floor_cleared" then
+        state = "floor_cleared"
+        message = ("Floor cleared! +$%d  |  Press SPACE for the next floor"):format(fm.lastReward)
+    elseif result == "game_won" then
+        state = "won"
+        message = ("YOU ESCAPED THE CASINO! +$%d  |  Press R to play again"):format(fm.lastReward)
+    elseif result == "game_lost" then
+        state = "lost"
+        message = (farkled and "FARKLE! " or "") .. "Out of rounds, you lose.  Press R to restart"
+    end
+end
+
 function love.update(dt)
     if state ~= "rolling" then return end
     local stillRolling = false
@@ -83,8 +133,7 @@ function love.update(dt)
     if not stillRolling then
         local free = collect(function(d) return not d.kept end)
         if score(free) == 0 then
-            state, roundScore = "farkled", 0
-            message = "FARKLEEEEE !!!  Press SPACE for the next round"
+            endRound(0, true)
         else
             state = "selecting"
             message = "Click dice to select, ENTER to confirm"
@@ -110,8 +159,9 @@ function love.draw()
         love.graphics.draw(anim.spriteSheet, anim.quads[frame], x, y, 0, scale)
     end
     love.graphics.setColor(1, 1, 1)
-    love.graphics.print("Round: " .. roundScore .. "   Bank: " .. bank, 20, 20)
+    love.graphics.print(("Round: %d   Floor score: %d / %d"):format(roundScore, fm.score, fm.target), 20, 20)
     love.graphics.print(message, 20, 60)
+    love.graphics.print(floorInfo(), 20, 100)
 end
 
 function love.mousepressed(mx, my, button)
@@ -127,7 +177,14 @@ function love.mousepressed(mx, my, button)
 end
 
 function love.keypressed(key)
-    if key == "space" and (state == "ready" or state == "farkled") then
+    if key == "space" and state == "floor_cleared" then
+        -- (shop goes here) 
+        fm:start_next_floor()
+        resetDice()
+        roundScore = 0
+        state, message = "ready", "Press SPACE to roll"
+
+    elseif key == "space" and (state == "ready" or state == "farkled") then
         for _, d in ipairs(dice) do d.kept, d.selected = false, false end
         roundScore = 0
         rollFree()
@@ -156,12 +213,9 @@ function love.keypressed(key)
         rollFree()
 
     elseif key == "b" and state == "decide" then
-        bank = bank + roundScore
-        roundScore = 0
-        if bank >= 10000 then
-            state, message = "won", "YOU WON !!!! GGEZ"
-        else
-            state, message = "ready", "Banked! Press SPACE to roll"
-        end
+        endRound(roundScore, false)
+
+    elseif key == "r" and (state == "won" or state == "lost") then
+        newGame()
     end
 end
