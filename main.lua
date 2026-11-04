@@ -25,6 +25,7 @@ local anim, dice, bg
 local state = "ready"
 local roundScore, message = 0, "Press SPACE to roll"
 local pendingScore = 0
+local snapTimer = 0 -- NEW: Timer for the dust delay
 
 local player, fm, shop, shopScreen
 local scorePanel
@@ -33,6 +34,8 @@ local helpButton = Button.new("Combos  [H]")
 local function resetDice()
     for _, d in ipairs(dice) do
         d.value, d.rolling, d.selected, d.kept = 1, 0, false, false
+        d.dying = false
+        d.x = nil
     end
 end
 
@@ -57,15 +60,36 @@ function love.load()
         dice[i] = {value = 1, rolling = 0, selected = false, kept = false}
     end
     scorePanel = ScorePanel.new()
+
+    local pixel = love.image.newImageData(2, 2)
+    pixel:mapPixel(function() return 1, 1, 1, 1 end)
+    
+    dustPS = love.graphics.newParticleSystem(love.graphics.newImage(pixel), 2000)
+    dustPS:setParticleLifetime(1, 2.5)
+    dustPS:setEmissionArea("uniform", DICE_W / 3, DICE_H / 3, 0, true)
+    dustPS:setColors(
+        0.4, 0.4, 0.4, 1,
+        0.2, 0.2, 0.2, 0.8,
+        0.1, 0.1, 0.1, 0
+    )
+    dustPS:setSizes(2.5, 1.5, 5.5)
+    dustPS:setLinearAcceleration(20, -30, 80, -120)
+    dustPS:setSpin(-5, 5)
+
     newGame()
 end
 
 -- Dice row: centered in the area to the right of the sidebar
-local function layout()
+local function layout(visibleCount)
+    visibleCount = visibleCount or 6
     local w, h = love.graphics.getDimensions()
     local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
+    
+    -- We still calculate scale based on 6 dice so they don't suddenly turn giant
     local scale = math.min(1, (areaW - 5 * GAP) / (6 * DICE_W))
-    local totalW = 6 * DICE_W * scale + 5 * GAP
+    
+    -- But we calculate the total width based ONLY on the remaining dice to close the gaps
+    local totalW = visibleCount * DICE_W * scale + math.max(0, visibleCount - 1) * GAP
     return areaX + (areaW - totalW) / 2, h / 2 - DICE_H * scale / 2 + 30, scale
 end
 
@@ -82,6 +106,16 @@ local function rollFree()
     for i, d in ipairs(dice) do
         if not d.kept then table.insert(free, i) end
     end
+    
+    if #free == 0 then
+        for i = 1, 6 do 
+            table.insert(free, i)
+            dice[i].kept = false 
+            dice[i].dying = false
+            dice[i].x = nil
+        end
+    end
+
     local values = Farkle.rollDice(#free)
     for n, i in ipairs(free) do
         dice[i].value = values[n]
@@ -157,28 +191,83 @@ end
 -- Called when the score animation has finished
 local function finishScoring()
     roundScore = roundScore + pendingScore
-    local allKept = true
+    
+    local visibleCount = 0
     for _, d in ipairs(dice) do
-        if d.selected then d.kept, d.selected = true, false end
-        if not d.kept then allKept = false end
+        if not d.kept then visibleCount = visibleCount + 1 end
     end
-    message = "+" .. pendingScore .. "  |  R = re-roll, B = bank"
-    if allKept then
-        for _, d in ipairs(dice) do d.kept = false end
-        message = "HOT DICE! 6 fresh dice  |  R = re-roll, B = bank"
+    
+    local x0, y0, scale = layout(visibleCount)
+    local drawIndex = 0
+    
+    for i, d in ipairs(dice) do
+        if not d.kept then
+            if d.selected then 
+                -- Spawn dust at their current screen coordinates
+                local cx = x0 + drawIndex * (DICE_W * scale + GAP) + (DICE_W * scale) / 2
+                local cy = y0 - 30 + (DICE_H * scale) / 2
+                dustPS:setPosition(cx, cy)
+                dustPS:emit(200)
+                
+                d.dying = true -- Mark as dying to hide them, but maintain the gap
+                d.selected = false 
+            end
+            drawIndex = drawIndex + 1
+        end
     end
-    state = "decide"
+    
+    snapTimer = 0.5 -- Wait 0.5 seconds before sliding the remaining dice
+    state = "snapping"
+    message = ""
 end
 
 function love.update(dt)
+    if dustPS then dustPS:update(dt) end
+    
     if state == "scoring" then
         if scorePanel:update(dt) then finishScoring() end
         return
     end
+    
+    if state == "snapping" then
+        snapTimer = snapTimer - dt
+        if snapTimer <= 0 then
+            local allKept = true
+            for _, d in ipairs(dice) do
+                if d.dying then
+                    d.kept = true
+                    d.dying = false
+                end
+                if not d.kept then allKept = false end
+            end
+            
+            message = "+" .. pendingScore .. "  |  R = re-roll, B = bank"
+            if allKept then message = "HOT DICE! 6 fresh dice  |  R = re-roll, B = bank" end
+            state = "decide"
+        end
+    end
 
     scorePanel:update(dt)
-    if state ~= "rolling" then return end
+    
+    local visibleCount = 0
+    for _, d in ipairs(dice) do
+        if not d.kept then visibleCount = visibleCount + 1 end
+    end
+    
+    local x0, y0, scale = layout(visibleCount)
+    local drawIndex = 0
+    
+    for i, d in ipairs(dice) do
+        if not d.kept then
+            local targetX = x0 + drawIndex * (DICE_W * scale + GAP)
+            if not d.x then d.x = targetX end -- Instantly position if it has no X yet
+            
+            d.x = d.x + (targetX - d.x) * 15 * dt
+            drawIndex = drawIndex + 1
+        end
+    end
 
+    if state ~= "rolling" then return end
     local stillRolling = false
     for _, d in ipairs(dice) do
         if d.rolling > 0 then
@@ -198,20 +287,30 @@ function love.update(dt)
 end
 
 local function drawDice()
-    local x0, y0, scale = layout()
+    local visibleCount = 0
+    for _, d in ipairs(dice) do
+        if not d.kept then visibleCount = visibleCount + 1 end
+    end
+    local _, y0, scale = layout(visibleCount)
+    
     for i, d in ipairs(dice) do
-        local x, y = x0 + (i - 1) * (DICE_W * scale + GAP), y0
-        local frame
-        if d.rolling > 0 then
-            frame = math.floor(love.timer.getTime() * 15 + i * 2) % #anim.quads + 1
-        else
-            frame = faceFrame[d.value]
+        if not d.kept and not d.dying then
+            local x = d.x or 0 
+            local y = y0
+            local frame
+            
+            if d.rolling > 0 then
+                frame = math.floor(love.timer.getTime() * 15 + i * 2) % #anim.quads + 1
+            else
+                frame = faceFrame[d.value]
+            end
+            
+            if d.selected then y = y - 30 end
+            if d.selected then love.graphics.setColor(1, 1, 0.4)
+            else love.graphics.setColor(1, 1, 1) end
+            
+            love.graphics.draw(anim.spriteSheet, anim.quads[frame], x, y, 0, scale)
         end
-        if d.selected then y = y - 30 end
-        if d.kept then love.graphics.setColor(0.5, 0.5, 0.5)
-        elseif d.selected then love.graphics.setColor(1, 1, 0.4)
-        else love.graphics.setColor(1, 1, 1) end
-        love.graphics.draw(anim.spriteSheet, anim.quads[frame], x, y, 0, scale)
     end
 end
 
@@ -234,6 +333,10 @@ function love.draw()
     else
         JokerBar.draw(player, areaX, 20, areaW)
         drawDice()
+        
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(dustPS)
+
         love.graphics.setFont(Theme.fonts.normal)
         Theme.color("text")
         love.graphics.printf(message, areaX, h - 70, areaW, "center")
@@ -254,12 +357,19 @@ function love.mousepressed(mx, my, button)
     end
 
     if state ~= "selecting" then return end
-    local x0, y0, scale = layout()
+    
+    local visibleCount = 0
+    for _, d in ipairs(dice) do
+        if not d.kept then visibleCount = visibleCount + 1 end
+    end
+    local _, y0, scale = layout(visibleCount)
+    
     for i, d in ipairs(dice) do
-        local x = x0 + (i - 1) * (DICE_W * scale + GAP)
-        if not d.kept and mx >= x and mx <= x + DICE_W * scale
-                and my >= y0 - 30 and my <= y0 + DICE_H * scale then
-            d.selected = not d.selected
+        if not d.kept and not d.dying then
+            if d.x and mx >= d.x and mx <= d.x + DICE_W * scale
+                    and my >= y0 - 30 and my <= y0 + DICE_H * scale then
+                d.selected = not d.selected
+            end
         end
     end
     refreshPreview()
