@@ -1,25 +1,34 @@
 local newAnimation = require("animation")
-require("farkle")
-local Player = require("player")
+local Farkle       = require("farkle")
+local Combos       = require("combos")
+local Scoring      = require("scoring")
+local Player       = require("player")
 local FloorManager = require("floor_manager")
+local Shop         = require("shop")
+
+local Theme      = require("ui.theme")
+local Button     = require("ui.button")
+local HUD        = require("ui.hud")
+local ScorePanel = require("ui.score_panel")
+local JokerBar   = require("ui.joker_bar")
+local ComboHelp  = require("ui.combo_help")
+local ShopScreen = require("ui.shop_screen")
 
 local DICE_W, DICE_H = 206, 202
 local GAP = 20
 local ROLL_TIME = 0.8
+local SIDEBAR_W = 300
 local faceFrame = {1, 2, 3, 4, 5, 6}
 
-local anim, dice, font, bg
+local anim, dice, bg
+-- ready | rolling | selecting | scoring | decide | farkled | shop | won | lost
 local state = "ready"
 local roundScore, message = 0, "Press SPACE to roll"
+local pendingScore = 0
 
-local player, fm
-
-local function floorInfo()
-    return ("Floor %d/%d%s | rounds left %d | money $%d"):format(
-        fm.floor, fm.cfg.total_floors,
-        fm:is_boss(fm.floor) and " [BOSS]" or "",
-        fm.rounds_left, player.money)
-end
+local player, fm, shop, shopScreen
+local scorePanel
+local helpButton = Button.new("Combos  [H]")
 
 local function resetDice()
     for _, d in ipairs(dice) do
@@ -32,29 +41,32 @@ local function newGame()
     fm = FloorManager.new(player)
     fm:start_next_floor()
     resetDice()
+    scorePanel:reset()
     roundScore = 0
     state = "ready"
     message = "Press SPACE to roll"
 end
 
 function love.load()
-    love.window.setMode(720, 480, {resizable=true, vsync=0, minwidth=400, minheight=300})
-    font = love.graphics.newFont(28)
-    love.graphics.setFont(font)
+    love.window.setMode(1280, 720, {resizable=true, vsync=0, minwidth=1100, minheight=640})
+    Theme.load()
     bg = love.graphics.newImage("wallpaper.jpg")
     anim = newAnimation(love.graphics.newImage("dice.png"), DICE_W, DICE_H, 5)
     dice = {}
     for i = 1, 6 do
         dice[i] = {value = 1, rolling = 0, selected = false, kept = false}
     end
+    scorePanel = ScorePanel.new()
     newGame()
 end
 
+-- Dice row: centered in the area to the right of the sidebar
 local function layout()
     local w, h = love.graphics.getDimensions()
-    local scale = math.min(1, (w - 40) / (6 * DICE_W + 5 * GAP))
+    local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
+    local scale = math.min(1, (areaW - 5 * GAP) / (6 * DICE_W))
     local totalW = 6 * DICE_W * scale + 5 * GAP
-    return (w - totalW) / 2, h / 2 - DICE_H * scale / 2, scale
+    return areaX + (areaW - totalW) / 2, h / 2 - DICE_H * scale / 2 + 30, scale
 end
 
 local function collect(filter)
@@ -65,43 +77,40 @@ local function collect(filter)
     return vals
 end
 
-local function score(vals)
-    local idx = {}
-    for i = 1, #vals do idx[i] = i end
-    return CalculateScore(vals, idx)
-end
-
-local function allDiceScore(vals)
-    local total = score(vals)
-    if total == 0 then return false end
-    for i = 1, #vals do
-        local without = {}
-        for j, v in ipairs(vals) do
-            if j ~= i then table.insert(without, v) end
-        end
-        if score(without) >= total then return false end
-    end
-    return true
-end
-
 local function rollFree()
     local free = {}
     for i, d in ipairs(dice) do
         if not d.kept then table.insert(free, i) end
     end
-    local values = RollDice(#free)
+    local values = Farkle.rollDice(#free)
     for n, i in ipairs(free) do
         dice[i].value = values[n]
         dice[i].rolling = ROLL_TIME + n * 0.1
         dice[i].selected = false
     end
+    scorePanel:reset()
     state = "rolling"
     message = ""
+end
+
+local function openShop()
+    shop = Shop.new(player)
+    shopScreen = ShopScreen.new(shop, player, fm.lastReward)
+    state, message = "shop", ""
+end
+
+local function leaveShop()
+    fm:start_next_floor()
+    resetDice()
+    scorePanel:reset()
+    roundScore = 0
+    state, message = "ready", "Press SPACE to roll"
 end
 
 local function endRound(points, farkled)
     local result = fm:submit_round(points)
     roundScore = 0
+    scorePanel:reset()
 
     if result == "playing" then
         if farkled then
@@ -110,8 +119,7 @@ local function endRound(points, farkled)
             state, message = "ready", "Banked " .. points .. "! Press SPACE to roll"
         end
     elseif result == "floor_cleared" then
-        state = "floor_cleared"
-        message = ("Floor cleared! +$%d  |  Press SPACE for the next floor"):format(fm.lastReward)
+        openShop()
     elseif result == "game_won" then
         state = "won"
         message = ("YOU ESCAPED THE CASINO! +$%d  |  Press R to play again"):format(fm.lastReward)
@@ -121,8 +129,56 @@ local function endRound(points, farkled)
     end
 end
 
+-- Live preview in the score panel while the player picks dice
+local function refreshPreview()
+    local vals = collect(function(d) return d.selected end)
+    if #vals == 0 then
+        scorePanel:reset()
+    elseif Combos.isValidSelection(vals) then
+        scorePanel:preview(Scoring.compute(vals, {}))   -- base combos, jokers not included
+    else
+        scorePanel:preview(nil, "Not a scoring combination")
+    end
+end
+
+-- ENTER: validate the selection and start the score animation
+local function confirmSelection()
+    local vals = collect(function(d) return d.selected end)
+    if not Combos.isValidSelection(vals) then
+        message = "Invalid selection: every selected die must be part of a combination"
+        return
+    end
+    local result = Scoring.compute(vals, player.jokers)
+    pendingScore = result.total
+    state, message = "scoring", ""
+    scorePanel:start(result)
+end
+
+-- Called when the score animation has finished
+local function finishScoring()
+    roundScore = roundScore + pendingScore
+    local allKept = true
+    for _, d in ipairs(dice) do
+        if d.selected then d.kept, d.selected = true, false end
+        if not d.kept then allKept = false end
+    end
+    message = "+" .. pendingScore .. "  |  R = re-roll, B = bank"
+    if allKept then
+        for _, d in ipairs(dice) do d.kept = false end
+        message = "HOT DICE! 6 fresh dice  |  R = re-roll, B = bank"
+    end
+    state = "decide"
+end
+
 function love.update(dt)
+    if state == "scoring" then
+        if scorePanel:update(dt) then finishScoring() end
+        return
+    end
+
+    scorePanel:update(dt)
     if state ~= "rolling" then return end
+
     local stillRolling = false
     for _, d in ipairs(dice) do
         if d.rolling > 0 then
@@ -132,7 +188,7 @@ function love.update(dt)
     end
     if not stillRolling then
         local free = collect(function(d) return not d.kept end)
-        if score(free) == 0 then
+        if not Combos.canScore(free) then
             endRound(0, true)
         else
             state = "selecting"
@@ -141,9 +197,8 @@ function love.update(dt)
     end
 end
 
-function love.draw()
+local function drawDice()
     local x0, y0, scale = layout()
-    love.graphics.draw(bg)
     for i, d in ipairs(dice) do
         local x, y = x0 + (i - 1) * (DICE_W * scale + GAP), y0
         local frame
@@ -158,14 +213,47 @@ function love.draw()
         else love.graphics.setColor(1, 1, 1) end
         love.graphics.draw(anim.spriteSheet, anim.quads[frame], x, y, 0, scale)
     end
+end
+
+function love.draw()
+    local w, h = love.graphics.getDimensions()
+    local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
+
     love.graphics.setColor(1, 1, 1)
-    love.graphics.print(("Round: %d   Floor score: %d / %d"):format(roundScore, fm.score, fm.target), 20, 20)
-    love.graphics.print(message, 20, 60)
-    love.graphics.print(floorInfo(), 20, 100)
+    love.graphics.draw(bg, 0, 0, 0, w / bg:getWidth(), h / bg:getHeight())
+
+    -- left sidebar
+    HUD.draw(fm, player, roundScore, 20, 20, SIDEBAR_W - 20)
+    scorePanel:draw(20, 20 + HUD.HEIGHT + 20, SIDEBAR_W - 20)
+    helpButton:setRect(20, h - 64, SIDEBAR_W - 20, 44)
+    helpButton:draw()
+
+    -- main area
+    if state == "shop" then
+        shopScreen:draw(areaX, 20, areaW)
+    else
+        JokerBar.draw(player, areaX, 20, areaW)
+        drawDice()
+        love.graphics.setFont(Theme.fonts.normal)
+        Theme.color("text")
+        love.graphics.printf(message, areaX, h - 70, areaW, "center")
+    end
+
+    ComboHelp.draw()
 end
 
 function love.mousepressed(mx, my, button)
-    if state ~= "selecting" or button ~= 1 then return end
+    if button ~= 1 then return end
+
+    if ComboHelp.open then ComboHelp.open = false return end
+    if helpButton:hit(mx, my) then ComboHelp.toggle() return end
+
+    if state == "shop" then
+        if shopScreen:mousepressed(mx, my) == "next" then leaveShop() end
+        return
+    end
+
+    if state ~= "selecting" then return end
     local x0, y0, scale = layout()
     for i, d in ipairs(dice) do
         local x = x0 + (i - 1) * (DICE_W * scale + GAP)
@@ -174,15 +262,18 @@ function love.mousepressed(mx, my, button)
             d.selected = not d.selected
         end
     end
+    refreshPreview()
 end
 
 function love.keypressed(key)
-    if key == "space" and state == "floor_cleared" then
-        -- (shop goes here) 
-        fm:start_next_floor()
-        resetDice()
-        roundScore = 0
-        state, message = "ready", "Press SPACE to roll"
+    if key == "h" then ComboHelp.toggle() return end
+    if ComboHelp.open then
+        if key == "escape" then ComboHelp.open = false end
+        return
+    end
+
+    if key == "space" and state == "shop" then
+        leaveShop()
 
     elseif key == "space" and (state == "ready" or state == "farkled") then
         for _, d in ipairs(dice) do d.kept, d.selected = false, false end
@@ -190,24 +281,7 @@ function love.keypressed(key)
         rollFree()
 
     elseif key == "return" and state == "selecting" then
-        local vals = collect(function(d) return d.selected end)
-        local s = score(vals)
-        if #vals == 0 or not allDiceScore(vals) then
-            message = "Invalid selection: every selected die must score"
-            return
-        end
-        roundScore = roundScore + s
-        local allKept = true
-        for _, d in ipairs(dice) do
-            if d.selected then d.kept, d.selected = true, false end
-            if not d.kept then allKept = false end
-        end
-        message = "+" .. s .. "  |  R = re-roll, B = bank"
-        if allKept then
-            for _, d in ipairs(dice) do d.kept = false end
-            message = "HOT DICE! 6 fresh dice  |  R = re-roll, B = bank"
-        end
-        state = "decide"
+        confirmSelection()
 
     elseif key == "r" and state == "decide" then
         rollFree()
