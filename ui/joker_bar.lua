@@ -7,11 +7,11 @@ local JokerBar = {}
 local CARD_W, CARD_H, GAP = 150, 104, 10
 
 function JokerBar.drawCard(joker, x, y, w, h)
-    Theme.panel(x, y, w, h)
+    Theme.box(x, y, w, h, "card")
     love.graphics.setFont(Theme.fonts.small)
-    Theme.color("gold")
+    Theme.color("mult")
     love.graphics.printf(joker.name, x + 8, y + 8, w - 16, "center")
-    Theme.color("text")
+    Theme.color("ink")
     love.graphics.printf(joker.desc, x + 8, y + 34, w - 16, "center")
 end
 
@@ -27,8 +27,7 @@ function JokerBar.draw(player, x, y, w)
         if joker then
             JokerBar.drawCard(joker, cx, y, cardW, CARD_H)
         else
-            Theme.color("border")
-            love.graphics.rectangle("line", cx, y, cardW, CARD_H, 10, 10)
+            Theme.box(cx, y, cardW, CARD_H, "inset")
             love.graphics.setFont(Theme.fonts.small)
             Theme.color("dim", 0.6)
             love.graphics.printf("empty", cx, y + CARD_H / 2 - 9, cardW, "center")

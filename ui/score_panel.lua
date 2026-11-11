@@ -76,7 +76,7 @@ local function drawValue(text, cx, cy, scale, maxW)
     local font = Theme.fonts.big
     love.graphics.setFont(font)
     local s = scale * math.min(1, maxW / font:getWidth(text))
-    love.graphics.print(text, cx, cy, 0, s, s, font:getWidth(text) / 2, font:getHeight() / 2)
+    Theme.print(text, cx, cy, 0, s, s, font:getWidth(text) / 2, font:getHeight() / 2)
 end
 
 function ScorePanel:draw(x, y, w)
@@ -86,9 +86,9 @@ function ScorePanel:draw(x, y, w)
     -- what is being counted right now (combo or joker name)
     love.graphics.setFont(f.small)
     Theme.color(self.kind == "joker" and "gold" or "text")
-    love.graphics.printf(self.label, x + 10, y + 8, w - 20, "center")
+    Theme.printf(self.label, x + 10, y + 8, w - 20, "center")
     Theme.color("dim")
-    love.graphics.printf(self.detail, x + 10, y + 50, w - 20, "center")
+    Theme.printf(self.detail, x + 10, y + 50, w - 20, "center")
 
     -- chips X mult
     local boxW, by, bh = (w - 20 - 30) / 2, y + 80, 84
@@ -100,13 +100,13 @@ function ScorePanel:draw(x, y, w)
 
     love.graphics.setFont(f.small)
     Theme.color("text")
-    love.graphics.printf("CHIPS", chipsX, by + 6, boxW, "center")
-    love.graphics.printf("MULT", multX, by + 6, boxW, "center")
+    Theme.printf("CHIPS", chipsX, by + 6, boxW, "center")
+    Theme.printf("MULT", multX, by + 6, boxW, "center")
     drawValue(fmt(self.chips), chipsX + boxW / 2, by + 54, scale, boxW - 12)
     drawValue(fmt(self.mult), multX + boxW / 2, by + 54, scale, boxW - 12)
 
     love.graphics.setFont(f.normal)
-    love.graphics.printf("X", x + 10 + boxW, by + bh / 2 - f.normal:getHeight() / 2, 30, "center")
+    Theme.printf("X", x + 10 + boxW, by + bh / 2 - f.normal:getHeight() / 2, 30, "center")
 
     if self.showTotal then
         Theme.color("gold")

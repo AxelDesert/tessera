@@ -4,11 +4,11 @@ FloorManager.__index = FloorManager
 -- Floor conf
 FloorManager.CONFIG = {
     total_floors     = 7,       -- reach the top => escape the casino
-    base_target      = 500,     -- target score on floor 1
-    growth          = 1.2,      -- multiplier per floor
-    rounds_per_floor  = 5,      -- rounds (Farkle turns) allowed per floor
+    base_target      = 1000,     -- target score on floor 1
+    growth          = 2,      -- multiplier per floor
+    rounds_per_floor  = 6,      -- rounds (Farkle turns) allowed per floor
     boss_every       = 5,       -- every 5th floor is a boss
-    boss_target_mult  = 1.4,
+    boss_target_mult  = 1,
     boss_rounds_penalty = 1,    -- bosses give 1 round less
     boss_reward      = 100,
     reward_per_floor  = 25,

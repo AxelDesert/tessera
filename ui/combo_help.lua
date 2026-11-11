@@ -28,35 +28,35 @@ function ComboHelp.draw()
 
     love.graphics.setFont(f.normal)
     Theme.color("gold")
-    love.graphics.printf("COMBINATIONS", px, py + 14, pw, "center")
+    Theme.printf("COMBINATIONS", px, py + 14, pw, "center")
 
     local y = py + 56
     love.graphics.setFont(f.small)
     Theme.color("dim")
-    love.graphics.print("Combination", colName, y)
-    love.graphics.print("Example", colDice, y)
-    love.graphics.print("Chips", colChips, y)
-    love.graphics.print("Mult", colMult, y)
+    Theme.print("Combination", colName, y)
+    Theme.print("Example", colDice, y)
+    Theme.print("Chips", colChips, y)
+    Theme.print("Mult", colMult, y)
     y = y + 28
 
     for _, c in ipairs(Combos.LIST) do
         Theme.color("text")
-        love.graphics.print(c.name, colName, y)
+        Theme.print(c.name, colName, y)
         Theme.color("dim")
-        love.graphics.print(table.concat(c.example, " "), colDice, y)
+        Theme.print(table.concat(c.example, " "), colDice, y)
         Theme.color("chips")
-        love.graphics.print("+" .. (c.chipsLabel or tostring(c.chips)), colChips, y)
+        Theme.print("+" .. (c.chipsLabel or tostring(c.chips)), colChips, y)
         Theme.color("mult")
-        love.graphics.print("+" .. c.mult, colMult, y)
+        Theme.print("+" .. c.mult, colMult, y)
         y = y + rowH
     end
 
     Theme.color("dim")
-    love.graphics.printf(
+    Theme.printf(
         "Score = Chips x Mult.  Mult starts at 1 and each combo adds its Mult.\n" ..
         "Every selected die must be part of a combo.  Jokers trigger after the combos, left to right.",
         px + 20, y + 8, pw - 40, "center")
-    love.graphics.printf("H / ESC / click to close", px, py + ph - 26, pw, "center")
+    Theme.printf("H / ESC / click to close", px, py + ph - 26, pw, "center")
 end
 
 return ComboHelp

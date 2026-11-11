@@ -28,7 +28,7 @@ local snapTimer = 0
 
 local player, fm, shop, shopScreen
 local scorePanel
-local helpButton = Button.new("Combos  [H]")
+local helpButton = Button.new("Combos  [H]", "button_orange")
 
 local function resetDice()
     for _, d in ipairs(dice) do
@@ -53,8 +53,9 @@ function love.load()
     love.window.setMode(1280, 720, {resizable=true, vsync=0, minwidth=1100, minheight=640})
     Theme.load()
     
-    bg = love.graphics.newImage("assets/wallpaper.jpg")
+    bg = love.graphics.newImage("assets/wallpaper.png")
     DiceBoard.load()
+    source = love.audio.newSource("audio/music.mp3", "stream")
     
     dice = {}
     for i = 1, 6 do
@@ -169,6 +170,9 @@ local function finishScoring()
 end
 
 function love.update(dt)
+    if not source:isPlaying( ) then
+        love.audio.play( source )
+    end
     if state == "scoring" then
         if scorePanel:update(dt) then finishScoring() end
         return
@@ -234,7 +238,7 @@ function love.draw()
         
         love.graphics.setFont(Theme.fonts.normal)
         Theme.color("text")
-        love.graphics.printf(message, areaX, h - 70, areaW, "center")
+        Theme.printf(message, areaX, h - 70, areaW, "center")
     end
 
     ComboHelp.draw()

@@ -15,10 +15,10 @@ function ShopScreen.new(shop, player, reward)
     local self = setmetatable({}, ShopScreen)
     self.shop, self.player, self.reward = shop, player, reward
     self.notice = ""
-    self.nextButton = Button.new("Next floor  [SPACE]")
-    self.rerollButton = Button.new("Reroll")
+    self.nextButton = Button.new("Next floor  [SPACE]", "button")
+    self.rerollButton = Button.new("Reroll", "button_red")
     self.buyButtons = {}
-    for i = 1, shop.cfg.offers do self.buyButtons[i] = Button.new("Buy") end
+    for i = 1, shop.cfg.offers do self.buyButtons[i] = Button.new("Buy", "button_orange") end
     return self
 end
 
@@ -28,10 +28,10 @@ function ShopScreen:draw(x, y, w)
 
     love.graphics.setFont(f.big)
     Theme.color("gold")
-    love.graphics.printf("SHOP", x, y, w, "center")
+    Theme.printf("SHOP", x, y, w, "center")
     love.graphics.setFont(f.normal)
     Theme.color("good")
-    love.graphics.printf(("Floor cleared!  +$%d"):format(self.reward), x, y + 52, w, "center")
+    Theme.printf(("Floor cleared!  +$%d"):format(self.reward), x, y + 52, w, "center")
 
     -- offers
     local n = shop.cfg.offers
@@ -47,10 +47,10 @@ function ShopScreen:draw(x, y, w)
             btn:setRect(cx, cy + CARD_H + 8, CARD_W, 40)
             btn:draw()
         else
-            Theme.box(cx, cy, CARD_W, CARD_H, "panel", 10)
+            Theme.box(cx, cy, CARD_W, CARD_H, "inset")
             love.graphics.setFont(f.normal)
             Theme.color("dim", 0.6)
-            love.graphics.printf("SOLD", cx, cy + CARD_H / 2 - 12, CARD_W, "center")
+            Theme.printf("SOLD", cx, cy + CARD_H / 2 - 12, CARD_W, "center")
             btn:setRect(-1, -1, 0, 0)   -- not clickable
         end
     end
@@ -67,12 +67,12 @@ function ShopScreen:draw(x, y, w)
 
     love.graphics.setFont(f.small)
     Theme.color("bad")
-    love.graphics.printf(self.notice, x, ry + 54, w, "center")
+    Theme.printf(self.notice, x, ry + 54, w, "center")
 
     -- jokers the player already owns
     love.graphics.setFont(f.small)
     Theme.color("dim")
-    love.graphics.printf("Your jokers", x, ry + 84, w, "center")
+    Theme.printf("Your jokers", x, ry + 84, w, "center")
     JokerBar.draw(player, x, ry + 108, w)
 end
 
