@@ -7,7 +7,7 @@
 -- compute() also returns `steps`: the list of changes, in order, which the
 -- score panel replays as an animation.
 
-local Combos = require("combos")
+local Combos = require("core.combos")
 
 local Scoring = {}
 

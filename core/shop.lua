@@ -1,7 +1,7 @@
 -- Shop logic only (no drawing): which jokers are for sale, buying, rerolling.
 -- The screen is in ui/shop_screen.lua.
 
-local Jokers = require("jokers")
+local Jokers = require("core.jokers")
 
 local Shop = {}
 Shop.__index = Shop

@@ -1,7 +1,7 @@
 -- "How much is each combination worth?" overlay.
 -- Built from Combos.LIST, so it always matches the real values.
 
-local Combos = require("combos")
+local Combos = require("core.combos")
 local Theme  = require("ui.theme")
 
 local ComboHelp = { open = false }

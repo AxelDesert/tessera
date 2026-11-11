@@ -7,7 +7,7 @@
 --   panel:draw(x, y, w)
 
 local Theme   = require("ui.theme")
-local Scoring = require("scoring")
+local Scoring = require("core.scoring")
 
 local fmt = Scoring.formatNumber
 
