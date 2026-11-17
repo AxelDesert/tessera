@@ -91,6 +91,9 @@ end
 function DiceBoard.draw(dice)
     local visibleCount = 0
     for _, d in ipairs(dice) do
+        if d.slashed then
+            return
+        end
         if not d.kept then visibleCount = visibleCount + 1 end
     end
     local _, y0, scale = layout(visibleCount)

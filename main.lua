@@ -15,7 +15,8 @@ local ScorePanel = require("ui.score_panel")
 local JokerBar   = require("ui.joker_bar")
 local ComboHelp  = require("ui.combo_help")
 local ShopScreen = require("ui.shop_screen")
-local DiceBoard  = require("ui.dice_board") -- NEW!
+local DiceBoard  = require("ui.dice_board")
+local FarkleAnim   = require("ui.animation")
 
 local ROLL_TIME = 0.8
 local SIDEBAR_W = 300
@@ -55,6 +56,7 @@ function love.load()
     
     bg = love.graphics.newImage("assets/wallpaper.png")
     DiceBoard.load()
+    FarkleAnim.load()
     source = love.audio.newSource("audio/music.mp3", "stream")
     
     dice = {}
@@ -121,7 +123,8 @@ local function endRound(points, farkled)
 
     if result == "playing" then
         if farkled then
-            state, message = "farkled", "FARKLEEEEE !!!  Press SPACE for the next round"
+            state, message = "farkled", "Press SPACE for the next round"
+            FarkleAnim.trigger()
         else
             state, message = "ready", "Banked " .. points .. "! Press SPACE to roll"
         end
@@ -197,7 +200,8 @@ function love.update(dt)
     end
 
     scorePanel:update(dt)
-    DiceBoard.update(dt, dice) -- Handles interpolation sliding and particle updates
+    DiceBoard.update(dt, dice)
+    FarkleAnim.update(dt)
 
     if state ~= "rolling" then return end
     local stillRolling = false
@@ -234,7 +238,7 @@ function love.draw()
         shopScreen:draw(areaX, 20, areaW)
     else
         JokerBar.draw(player, areaX, 20, areaW)
-        DiceBoard.draw(dice) -- Handles drawing dice and dust!
+        DiceBoard.draw(dice)
         
         love.graphics.setFont(Theme.fonts.normal)
         Theme.color("text")
@@ -242,6 +246,7 @@ function love.draw()
     end
 
     ComboHelp.draw()
+    FarkleAnim.draw()
 end
 
 function love.mousepressed(mx, my, button)
