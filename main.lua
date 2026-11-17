@@ -9,6 +9,7 @@ local Shop         = require("core.shop")
 
 -- UI modules
 local Theme      = require("ui.theme")
+local Screen     = require("ui.screen")
 local Button     = require("ui.button")
 local HUD        = require("ui.hud")
 local ScorePanel = require("ui.score_panel")
@@ -19,7 +20,7 @@ local DiceBoard  = require("ui.dice_board")
 local FarkleAnim   = require("ui.animation")
 
 local ROLL_TIME = 0.8
-local SIDEBAR_W = 300
+local SIDEBAR_W = Screen.SIDEBAR_W
 
 local dice, bg
 local state = "ready" -- ready | rolling | selecting | scoring | snapping | decide | farkled | shop | won | lost
@@ -29,7 +30,6 @@ local snapTimer = 0
 
 local player, fm, shop, shopScreen
 local scorePanel
-local helpButton = Button.new("Combos  [H]", "button_orange")
 
 local function resetDice()
     for _, d in ipairs(dice) do
@@ -51,7 +51,11 @@ local function newGame()
 end
 
 function love.load()
-    love.window.setMode(1280, 720, {resizable=true, vsync=0, minwidth=1100, minheight=640})
+    -- game is laid out for 1920x1080 and scaled into the window (F11 = fullscreen)
+    local dw, dh = love.window.getDesktopDimensions()
+    local k = math.min(1, dw * 0.95 / Screen.W, dh * 0.90 / Screen.H)
+    love.window.setMode(math.floor(Screen.W * k), math.floor(Screen.H * k),
+        {resizable = true, vsync = 0, minwidth = 960, minheight = 540})
     Theme.load()
     
     bg = love.graphics.newImage("assets/wallpaper.png")
@@ -223,37 +227,39 @@ function love.update(dt)
 end
 
 function love.draw()
-    local w, h = love.graphics.getDimensions()
+    Screen.begin()
+    local w, h = Screen.W, Screen.H
     local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
 
     love.graphics.setColor(1, 1, 1)
     love.graphics.draw(bg, 0, 0, 0, w / bg:getWidth(), h / bg:getHeight())
 
-    HUD.draw(fm, player, roundScore, 20, 20, SIDEBAR_W - 20)
-    scorePanel:draw(20, 20 + HUD.HEIGHT + 20, SIDEBAR_W - 20)
-    helpButton:setRect(20, h - 64, SIDEBAR_W - 20, 44)
-    helpButton:draw()
+    HUD.draw(fm, player, roundScore, 0, 0, SIDEBAR_W)
+    scorePanel:draw(HUD.scoreRect(0, 0, SIDEBAR_W))
 
     if state == "shop" then
         shopScreen:draw(areaX, 20, areaW)
     else
         JokerBar.draw(player, areaX, 20, areaW)
         DiceBoard.draw(dice)
-        
+
         love.graphics.setFont(Theme.fonts.normal)
         Theme.color("text")
-        Theme.printf(message, areaX, h - 70, areaW, "center")
+        Theme.printf(message, areaX, h - 90, areaW, "center")
     end
 
     ComboHelp.draw()
     FarkleAnim.draw()
+    Screen.finish()
 end
 
 function love.mousepressed(mx, my, button)
     if button ~= 1 then return end
+    mx, my = Screen.toGame(mx, my)
 
     if ComboHelp.open then ComboHelp.open = false return end
-    if helpButton:hit(mx, my) then ComboHelp.toggle() return end
+    if HUD.comboButton:hit(mx, my) then ComboHelp.toggle() return end
+    if HUD.newRunButton:hit(mx, my) then newGame() return end
 
     if state == "shop" then
         if shopScreen:mousepressed(mx, my) == "next" then leaveShop() end
@@ -268,6 +274,7 @@ function love.mousepressed(mx, my, button)
 end
 
 function love.keypressed(key)
+    if key == "f11" then love.window.setFullscreen(not love.window.getFullscreen(), "desktop") return end
     if key == "h" then ComboHelp.toggle() return end
     if ComboHelp.open then
         if key == "escape" then ComboHelp.open = false end

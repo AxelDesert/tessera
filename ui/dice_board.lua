@@ -1,8 +1,10 @@
+local Screen = require("ui.screen")
+
 local DiceBoard = {}
 
 local DICE_W, DICE_H = 206, 202
 local GAP = 20
-local SIDEBAR_W = 300
+local SIDEBAR_W = Screen.SIDEBAR_W
 local faceFrame = {1, 2, 3, 4, 5, 6}
 
 local anim, dustPS
@@ -35,7 +37,7 @@ end
 
 local function layout(visibleCount)
     visibleCount = visibleCount or 6
-    local w, h = love.graphics.getDimensions()
+    local w, h = Screen.W, Screen.H
     local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
     local scale = math.min(1, (areaW - 5 * GAP) / (6 * DICE_W))
     local totalW = visibleCount * DICE_W * scale + math.max(0, visibleCount - 1) * GAP

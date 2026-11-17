@@ -1,4 +1,6 @@
 -- animation.lua
+local Screen = require("ui.screen")
+
 local FarkleAnim = {
     active = false,
     timer = 0,
@@ -109,7 +111,7 @@ end
 function FarkleAnim.draw()
     if not FarkleAnim.active then return end
     
-    local w, h = love.graphics.getDimensions()
+    local w, h = Screen.W, Screen.H
     local centerX, centerY = w / 2, h / 2
     
     local dx = (math.random() * 2 - 1) * FarkleAnim.shake
