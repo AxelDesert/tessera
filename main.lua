@@ -16,19 +16,21 @@ local ScorePanel = require("ui.score_panel")
 local JokerBar   = require("ui.joker_bar")
 local ComboHelp  = require("ui.combo_help")
 local ShopScreen = require("ui.shop_screen")
+local CashoutScreen = require("ui.cashout_screen")
 local DiceBoard  = require("ui.dice_board")
 local FarkleAnim   = require("ui.animation")
 
 local ROLL_TIME = 0.8
+local START_MONEY = 4   -- like Balatro
 local SIDEBAR_W = Screen.SIDEBAR_W
 
 local dice, bg
-local state = "ready" -- ready | rolling | selecting | scoring | snapping | decide | farkled | shop | won | lost
+local state = "ready" -- ready | rolling | selecting | scoring | snapping | decide | farkled | cashout | shop | won | lost
 local roundScore, message = 0, "Press SPACE to roll"
 local pendingScore = 0
 local snapTimer = 0
 
-local player, fm, shop, shopScreen
+local player, fm, shop, shopScreen, cashoutScreen
 local scorePanel
 
 local function resetDice()
@@ -40,7 +42,7 @@ local function resetDice()
 end
 
 local function newGame()
-    player = Player.new({ money = 0 })
+    player = Player.new({ money = START_MONEY })
     fm = FloorManager.new(player)
     fm:start_next_floor()
     resetDice()
@@ -120,6 +122,17 @@ local function leaveShop()
     state, message = "ready", "Press SPACE to roll"
 end
 
+-- Floor cleared: show what was earned, then (on "Cash out") pay it and open the shop
+local function openCashout()
+    cashoutScreen = CashoutScreen.new(fm.lastPayout, player)
+    state, message = "cashout", ""
+end
+
+local function leaveCashout()
+    fm:collect_payout()
+    openShop()
+end
+
 local function endRound(points, farkled)
     local result = fm:submit_round(points)
     roundScore = 0
@@ -133,7 +146,7 @@ local function endRound(points, farkled)
             state, message = "ready", "Banked " .. points .. "! Press SPACE to roll"
         end
     elseif result == "floor_cleared" then
-        openShop()
+        openCashout()
     elseif result == "game_won" then
         state = "won"
         message = ("YOU ESCAPED THE CASINO! +$%d  |  Press R to play again"):format(fm.lastReward)
@@ -154,13 +167,22 @@ local function refreshPreview()
     end
 end
 
+-- Game state that jokers can look at (see core/jokers.lua)
+local function jokerContext()
+    return {
+        money = player.money, rounds_left = fm.rounds_left,
+        round_index = fm:get_rounds(fm.floor) - fm.rounds_left + 1,
+        floor = fm.floor, boss = fm:is_boss(fm.floor), joker_count = #player.jokers,
+    }
+end
+
 local function confirmSelection()
     local vals = collect(function(d) return d.selected end)
     if not Combos.isValidSelection(vals) then
         message = "Invalid selection: every selected die must be part of a combination"
         return
     end
-    local result = Scoring.compute(vals, player.jokers)
+    local result = Scoring.compute(vals, player.jokers, jokerContext())
     pendingScore = result.total
     state, message = "scoring", ""
     scorePanel:start(result)
@@ -177,6 +199,7 @@ local function finishScoring()
 end
 
 function love.update(dt)
+    if state == "cashout" then cashoutScreen:update(dt) end
     if not source:isPlaying( ) then
         love.audio.play( source )
     end
@@ -239,6 +262,8 @@ function love.draw()
 
     if state == "shop" then
         shopScreen:draw(areaX, 20, areaW)
+    elseif state == "cashout" then
+        cashoutScreen:draw(areaX, 20, areaW)
     else
         JokerBar.draw(player, areaX, 20, areaW)
         DiceBoard.draw(dice)
@@ -261,6 +286,11 @@ function love.mousepressed(mx, my, button)
     if HUD.comboButton:hit(mx, my) then ComboHelp.toggle() return end
     if HUD.newRunButton:hit(mx, my) then newGame() return end
 
+    if state == "cashout" then
+        if cashoutScreen:mousepressed(mx, my) == "next" then leaveCashout() end
+        return
+    end
+
     if state == "shop" then
         if shopScreen:mousepressed(mx, my) == "next" then leaveShop() end
         return
@@ -281,7 +311,9 @@ function love.keypressed(key)
         return
     end
 
-    if key == "space" and state == "shop" then
+    if (key == "space" or key == "return") and state == "cashout" then
+        if cashoutScreen:advance() == "next" then leaveCashout() end
+    elseif key == "space" and state == "shop" then
         leaveShop()
     elseif key == "space" and (state == "ready" or state == "farkled") then
         for _, d in ipairs(dice) do d.kept, d.selected = false, false end

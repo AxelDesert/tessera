@@ -10,10 +10,15 @@ FloorManager.CONFIG = {
     boss_every       = 5,       -- every 5th floor is a boss
     boss_target_mult  = 1,
     boss_rounds_penalty = 1,    -- bosses give 1 round less
-    boss_reward      = 100,
-    reward_per_floor  = 25,
-    boss_reward_mult  = 2,
     round_to         = 50,      -- scores are multiples of 50
+
+    -- Money paid when a floor is cleared (Balatro style, see compute_payout)
+    base_reward      = 5,       -- $ for a normal floor
+    boss_reward      = 8,       -- $ for a boss floor
+    reward_per_round = 1,       -- $ for every round you did not need
+    interest_per     = 5,       -- every $5 you hold earns...
+    interest_amount  = 1,       -- ...$1 of interest...
+    interest_cap     = 5,       -- ...up to $5 (so money above $25 earns nothing more)
 }
 
 function FloorManager.new(player, config)
@@ -46,13 +51,48 @@ function FloorManager:get_rounds(n)
     return r
 end
 
+-- Base reward of floor n (what the HUD shows as "to earn")
 function FloorManager:get_rewards(n)
-    local c = self.cfg
-    local r = c.boss_reward + c.reward_per_floor * (n - 1)
-    if self:is_boss(n) then
-        r = r * c.boss_reward_mult
+    return self:is_boss(n) and self.cfg.boss_reward or self.cfg.base_reward
+end
+
+-- Everything the player earns for clearing the current floor, line by line:
+--   { total = n, lines = { { label, amount, kind }, ... } }
+-- kind = "base" | "rounds" | "interest" | "joker"
+-- Jokers can add a line with `payout = function(ctx) return dollars end`
+-- (ctx: player, fm, floor, boss, rounds_left, interest).
+function FloorManager:compute_payout()
+    local c, p = self.cfg, self.player
+    local lines, total = {}, 0
+    local function add(label, amount, kind)
+        if amount and amount > 0 then
+            lines[#lines + 1] = { label = label, amount = amount, kind = kind }
+            total = total + amount
+        end
     end
-    return r
+
+    local boss = self:is_boss(self.floor)
+    add(boss and "Boss floor cleared" or "Floor cleared", self:get_rewards(self.floor), "base")
+    add(("%d round%s left  ($%d each)"):format(self.rounds_left, self.rounds_left == 1 and "" or "s", c.reward_per_round),
+        self.rounds_left * c.reward_per_round, "rounds")
+
+    local interest = math.min(c.interest_cap, math.floor(p.money / c.interest_per) * c.interest_amount)
+    add(("Interest  ($%d per $%d, max $%d)"):format(c.interest_amount, c.interest_per, c.interest_cap), interest, "interest")
+
+    local ctx = { player = p, fm = self, floor = self.floor, boss = boss,
+                  rounds_left = self.rounds_left, interest = interest }
+    for _, joker in ipairs(p.jokers) do
+        if joker.payout then add(joker.name, joker.payout(ctx), "joker") end
+    end
+    return { lines = lines, total = total }
+end
+
+-- Puts the money of the last payout in the player's wallet (once)
+function FloorManager:collect_payout()
+    if self.lastPayout and not self.payoutCollected then
+        self.player:add_money(self.lastPayout.total)
+        self.payoutCollected = true
+    end
 end
 
 function FloorManager:start_next_floor()
@@ -85,18 +125,19 @@ function FloorManager:submit_round(points)
 end
 
 function FloorManager:_clear_floor()
-    local reward = self:get_rewards(self.floor)
-    self.player:add_money(reward)
+    self.lastPayout = self:compute_payout()
+    self.lastReward = self.lastPayout.total
+    self.payoutCollected = false
     self.player.floors_cleared = self.player.floors_cleared + 1
-    self.lastReward = reward
 
     if self.floor >= self.cfg.total_floors then
+        self:collect_payout()          -- no cash-out screen after the last floor
         self.state = "game_won"
         self.player:escape()
         return "game_won"
     end
     self.state = "floor_cleared"
-    -- shop goes here then start_next_floor() (in main)
+    -- main shows the cash-out screen, calls collect_payout(), then the shop
     return "floor_cleared"
 end
 

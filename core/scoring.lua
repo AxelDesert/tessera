@@ -28,22 +28,26 @@ local function describe(dChips, dMult, xMult)
 end
 
 -- What jokers get to look at
-local function buildContext(values, entries)
+-- `extra` = optional table from main (money, rounds_left, boss, ...) merged into the context
+local function buildContext(values, entries, extra)
     local faces, has = {0, 0, 0, 0, 0, 0}, {}
     for _, v in ipairs(values) do faces[v] = faces[v] + 1 end
     for _, e in ipairs(entries) do has[e.id] = true end
-    return {
+    local ctx = {
         values  = values,    -- scored dice
         size    = #values,   -- how many dice are scored
         faces   = faces,     -- faces[n] = how many dice show n
         has     = has,       -- has.three_kind == true, ...
         entries = entries,   -- raw combo list
     }
+    for k, v in pairs(extra or {}) do ctx[k] = v end
+    return ctx
 end
 
 -- values : faces of the dice being scored (must be a valid selection)
 -- jokers : list of joker definitions (player.jokers)
-function Scoring.compute(values, jokers)
+-- extra  : optional game state for jokers (see buildContext)
+function Scoring.compute(values, jokers, extra)
     local entries = Combos.evaluate(values)
     local chips, mult = 0, Scoring.BASE_MULT
     local steps, names = {}, {}
@@ -57,9 +61,9 @@ function Scoring.compute(values, jokers)
         }
     end
 
-    local ctx = buildContext(values, entries)
+    local ctx = buildContext(values, entries, extra)
     for _, joker in ipairs(jokers or {}) do
-        local fx = joker.effect(ctx)
+        local fx = joker.effect and joker.effect(ctx)   -- payout-only jokers have no effect
         if fx then
             chips = chips + (fx.chips or 0)
             mult  = mult + (fx.mult or 0)

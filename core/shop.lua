@@ -8,7 +8,7 @@ Shop.__index = Shop
 
 Shop.CONFIG = {
     offers      = 3,    -- jokers on sale at once
-    reroll_cost = 25,
+    reroll_cost = 5,
 }
 
 function Shop.new(player, config)
