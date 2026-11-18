@@ -17,7 +17,7 @@ function ComboHelp.draw()
     local w, h = Screen.W, Screen.H
 
     love.graphics.setColor(0, 0, 0, 0.75)
-    love.graphics.rectangle("fill", 0, 0, w, h)
+    Screen.fill()
 
     local rowH = 44
     local pw, ph = math.min(1300, w - 40), 270 + #Combos.LIST * rowH

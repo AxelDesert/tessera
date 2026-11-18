@@ -124,7 +124,8 @@ function FarkleAnim.draw()
     
     -- Dark background for emphasis
     love.graphics.setColor(0, 0, 0, 0.75)
-    love.graphics.rectangle("fill", -dx, -dy, w, h)
+    love.graphics.rectangle("fill", Screen.left - dx, Screen.top - dy,
+        Screen.right - Screen.left, Screen.bottom - Screen.top)
     
     -- Draw Action Lines
     love.graphics.push()

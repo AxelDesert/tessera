@@ -278,7 +278,9 @@ function love.draw()
     local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
 
     love.graphics.setColor(1, 1, 1)
-    love.graphics.draw(bg, 0, 0, 0, w / bg:getWidth(), h / bg:getHeight())
+    local bw, bh = bg:getDimensions()
+    local cover = math.max((Screen.right - Screen.left) / bw, (Screen.bottom - Screen.top) / bh)
+    love.graphics.draw(bg, w / 2, h / 2, 0, cover, cover, bw / 2, bh / 2)
 
     HUD.draw(fm, player, roundScore, 0, 0, SIDEBAR_W)
     scorePanel:draw(HUD.scoreRect(0, 0, SIDEBAR_W))

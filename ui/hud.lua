@@ -73,9 +73,10 @@ function HUD.draw(fm, player, roundScore, x, y, w)
 
     -- sidebar background
     Theme.color("sidebar")
-    love.graphics.rectangle("fill", x, y, w, Screen.H)
+    local sx, sy, sh = math.min(x, Screen.left), math.min(y, Screen.top), Screen.bottom - math.min(y, Screen.top)
+    love.graphics.rectangle("fill", sx, sy, x + w - sx, sh)
     Theme.color("sidebar_edge")
-    love.graphics.rectangle("fill", x + w - 6, y, 6, Screen.H)
+    love.graphics.rectangle("fill", x + w - 6, sy, 6, sh)
 
     -- title bar
     local hx, hy, hw, hh = x + Z(10), y + Z(24), Z(588), Z(82)

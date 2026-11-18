@@ -96,7 +96,8 @@ local function newBgDie(initial)
     local z = math.random()
     return {
         z = z, s = lerp(0.20, 0.70, z), a = lerp(0.16, 0.45, z),
-        x = math.random() * W, y = initial and math.random() * H or H + 160,
+        x = Screen.left + math.random() * (Screen.right - Screen.left),
+        y = initial and (Screen.top + math.random() * (Screen.bottom - Screen.top)) or Screen.bottom + 160,
         vx = math.random(-12, 12), vy = -lerp(14, 55, z),
         r = math.random() * math.pi * 2, vr = (math.random() - 0.5) * 1.1,
         face = math.random(6),
@@ -120,7 +121,7 @@ end
 local function updateBackground(dt)
     for _, d in ipairs(bgDice) do
         d.x, d.y, d.r = d.x + d.vx * dt, d.y + d.vy * dt, d.r + d.vr * dt
-        if d.y < -160 or d.x < -160 or d.x > W + 160 then
+        if d.y < Screen.top - 160 or d.x < Screen.left - 160 or d.x > Screen.right + 160 then
             local n = newBgDie(false)
             for k, v in pairs(n) do d[k] = v end
         end
@@ -147,21 +148,22 @@ local function drawBackground()
 
     -- wallpaper: oversized so rotation and drift never reveal the edges
     local iw, ih = bg:getDimensions()
-    local k = math.max(W / iw, H / ih) * 1.25 * (1 + math.sin(time * 0.2) * 0.03)
+    local vw, vh = Screen.right - Screen.left, Screen.bottom - Screen.top
+    local k = math.max(vw / iw, vh / ih) * 1.25 * (1 + math.sin(time * 0.2) * 0.03)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(bg,
         W / 2 - px * 30 + math.sin(time * 0.13) * 40, H / 2 - py * 20 + math.cos(time * 0.11) * 25,
         math.sin(time * 0.09) * 0.07, k, k, iw / 2, ih / 2)
 
     love.graphics.setColor(0, 0, 0, 0.18)
-    love.graphics.rectangle("fill", 0, 0, W, H)
+    Screen.fill()
 
     for _, d in ipairs(bgDice) do
         drawDie(d.face, d.x - px * 70 * d.z, d.y - py * 50 * d.z, d.r, d.s, d.a)
     end
 
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(vignette, 0, 0, 0, W / vignette:getWidth(), H / vignette:getHeight())
+    love.graphics.draw(vignette, Screen.left, Screen.top, 0, vw / vignette:getWidth(), vh / vignette:getHeight())
 end
 
 local function drawHeroes()
@@ -699,7 +701,7 @@ function Menu.draw()
             drawBackground()
         else
             love.graphics.setColor(0, 0, 0, 0.65 * clamp(screenT * 4, 0, 1))
-            love.graphics.rectangle("fill", 0, 0, W, H)
+            Screen.fill()
         end
 
         -- panels slide up into place; the title screen has its own intro
@@ -717,7 +719,7 @@ function Menu.draw()
 
     if fade.a > 0 then
         love.graphics.setColor(0, 0, 0, fade.a)
-        love.graphics.rectangle("fill", 0, 0, W, H)
+        Screen.fill()
     end
     love.graphics.setColor(1, 1, 1, 1)
 end
