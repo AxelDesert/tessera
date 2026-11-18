@@ -6,6 +6,7 @@ local Scoring      = require("core.scoring")
 local Player       = require("core.player")
 local FloorManager = require("core.floor_manager")
 local Shop         = require("core.shop")
+local Settings     = require("core.settings")
 
 -- UI modules
 local Theme      = require("ui.theme")
@@ -19,12 +20,13 @@ local ShopScreen = require("ui.shop_screen")
 local CashoutScreen = require("ui.cashout_screen")
 local DiceBoard  = require("ui.dice_board")
 local FarkleAnim   = require("ui.animation")
+local Menu         = require("ui.menu")
 
 local ROLL_TIME = 0.8
 local START_MONEY = 4   -- like Balatro
 local SIDEBAR_W = Screen.SIDEBAR_W
 
-local dice, bg
+local dice, bg, source
 local state = "ready" -- ready | rolling | selecting | scoring | snapping | decide | farkled | cashout | shop | won | lost
 local roundScore, message = 0, "Press SPACE to roll"
 local pendingScore = 0
@@ -58,6 +60,8 @@ function love.load()
     local k = math.min(1, dw * 0.95 / Screen.W, dh * 0.90 / Screen.H)
     love.window.setMode(math.floor(Screen.W * k), math.floor(Screen.H * k),
         {resizable = true, vsync = 0, minwidth = 960, minheight = 540})
+    Settings.load()
+    Settings.applyWindow()
     Theme.load()
     
     bg = love.graphics.newImage("assets/wallpaper.png")
@@ -72,6 +76,14 @@ function love.load()
     scorePanel = ScorePanel.new()
     
     newGame()
+
+    -- title screen / pause menu (see ui/menu.lua)
+    Menu.load({ bg = bg, music = source })
+    Menu.onPlay   = newGame
+    Menu.onCombos = function() ComboHelp.open = true end
+    Menu.runInfo  = function()
+        return ("FLOOR %d / %d   |   $%d"):format(fm.floor, fm.cfg.total_floors, player.money)
+    end
 end
 
 local function collect(filter)
@@ -149,9 +161,11 @@ local function endRound(points, farkled)
         openCashout()
     elseif result == "game_won" then
         state = "won"
+        Settings.recordRun(player.floors_cleared, true)
         message = ("YOU ESCAPED THE CASINO! +$%d  |  Press R to play again"):format(fm.lastReward)
     elseif result == "game_lost" then
         state = "lost"
+        Settings.recordRun(player.floors_cleared, false)
         message = (farkled and "FARKLE! " or "") .. "Out of rounds, you lose.  Press R to restart"
     end
 end
@@ -199,10 +213,13 @@ local function finishScoring()
 end
 
 function love.update(dt)
-    if state == "cashout" then cashoutScreen:update(dt) end
+    Menu.update(dt)
     if not source:isPlaying( ) then
         love.audio.play( source )
     end
+    if Menu.visible then return end   -- title screen / pause: the game is frozen
+
+    if state == "cashout" then cashoutScreen:update(dt) end
     if state == "scoring" then
         if scorePanel:update(dt) then finishScoring() end
         return
@@ -251,6 +268,12 @@ end
 
 function love.draw()
     Screen.begin()
+    if Menu.visible and Menu.mode == "main" then
+        Menu.draw()
+        Screen.finish()
+        return
+    end
+
     local w, h = Screen.W, Screen.H
     local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
 
@@ -273,8 +296,13 @@ function love.draw()
         Theme.printf(message, areaX, h - 90, areaW, "center")
     end
 
-    ComboHelp.draw()
+    love.graphics.setFont(Theme.fonts.small)
+    Theme.color("dim", 0.6)
+    Theme.printf("ESC: menu", w - 260, h - 50, 240, "right")
+
     FarkleAnim.draw()
+    Menu.draw()          -- pause overlay + screen fades
+    ComboHelp.draw()
     Screen.finish()
 end
 
@@ -283,6 +311,7 @@ function love.mousepressed(mx, my, button)
     mx, my = Screen.toGame(mx, my)
 
     if ComboHelp.open then ComboHelp.open = false return end
+    if Menu.mousepressed(mx, my, button) then return end
     if HUD.comboButton:hit(mx, my) then ComboHelp.toggle() return end
     if HUD.newRunButton:hit(mx, my) then newGame() return end
 
@@ -304,12 +333,14 @@ function love.mousepressed(mx, my, button)
 end
 
 function love.keypressed(key)
-    if key == "f11" then love.window.setFullscreen(not love.window.getFullscreen(), "desktop") return end
-    if key == "h" then ComboHelp.toggle() return end
+    if key == "f11" then Settings.toggleFullscreen() return end
     if ComboHelp.open then
-        if key == "escape" then ComboHelp.open = false end
+        if key == "escape" or key == "h" then ComboHelp.open = false end
         return
     end
+    if Menu.visible then Menu.keypressed(key) return end
+    if key == "escape" then Menu.open("pause") return end
+    if key == "h" then ComboHelp.toggle() return end
 
     if (key == "space" or key == "return") and state == "cashout" then
         if cashoutScreen:advance() == "next" then leaveCashout() end
@@ -328,4 +359,13 @@ function love.keypressed(key)
     elseif key == "r" and (state == "won" or state == "lost") then
         newGame()
     end
+end
+
+-- alt-tab during a run opens the pause menu
+function love.focus(focused)
+    if not focused and not Menu.visible then Menu.open("pause") end
+end
+
+function love.quit()
+    Settings.save()
 end

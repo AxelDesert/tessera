@@ -1,5 +1,6 @@
 -- animation.lua
 local Screen = require("ui.screen")
+local Settings = require("core.settings")
 
 local FarkleAnim = {
     active = false,
@@ -114,8 +115,9 @@ function FarkleAnim.draw()
     local w, h = Screen.W, Screen.H
     local centerX, centerY = w / 2, h / 2
     
-    local dx = (math.random() * 2 - 1) * FarkleAnim.shake
-    local dy = (math.random() * 2 - 1) * FarkleAnim.shake
+    local amount = Settings.data.shake and FarkleAnim.shake or 0   -- Options > Screen shake
+    local dx = (math.random() * 2 - 1) * amount
+    local dy = (math.random() * 2 - 1) * amount
     
     love.graphics.push()
     love.graphics.translate(dx, dy)
