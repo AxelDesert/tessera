@@ -81,6 +81,7 @@ function love.load()
     Menu.load({ bg = bg, music = source })
     Menu.onPlay   = newGame
     Menu.onCombos = function() ComboHelp.open = true end
+    Menu.overlayOpen = function() return ComboHelp.open end
     Menu.runInfo  = function()
         return ("FLOOR %d / %d   |   $%d"):format(fm.floor, fm.cfg.total_floors, player.money)
     end
@@ -270,6 +271,7 @@ function love.draw()
     Screen.begin()
     if Menu.visible and Menu.mode == "main" then
         Menu.draw()
+        ComboHelp.draw()     -- opened from "How to play" > "Combos"; must sit above the menu
         Screen.finish()
         return
     end

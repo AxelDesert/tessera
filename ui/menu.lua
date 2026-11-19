@@ -11,6 +11,7 @@
 --   Menu.onResume()     (optional) pause menu closed
 --   Menu.onMainMenu()   (optional) player left the run for the title screen
 --   Menu.onCombos()     open the combo table
+--   Menu.overlayOpen()  (optional) true while an overlay covers the menu (no mouse hover)
 --   Menu.runInfo()      string shown under "PAUSED"
 --
 -- Everything is drawn in the 1920x1080 virtual screen (see ui/screen.lua).
@@ -241,12 +242,27 @@ end
 ---------------------------------------------------------------------------
 -- item drawing (buttons, sliders, toggles)
 ---------------------------------------------------------------------------
+-- Pointers are queued and drawn last (see flushPointers) so they always sit on top of
+-- every other menu element. Positions are stored in screen space so any translate that
+-- was active when they were queued (slide-in animations etc.) is preserved.
+local pointerQueue = {}
+
 local function pointer(cx, cy, dir)
     -- dir = 1: points right; -1: points left
-    love.graphics.setColor(0, 0, 0, 0.5)
-    love.graphics.polygon("fill", cx - 14 * dir + 3, cy - 17 + 3, cx - 14 * dir + 3, cy + 17 + 3, cx + 14 * dir + 3, cy + 3)
-    love.graphics.setColor(1, 0.85, 0.3, 1)
-    love.graphics.polygon("fill", cx - 14 * dir, cy - 17, cx - 14 * dir, cy + 17, cx + 14 * dir, cy)
+    local gx, gy = love.graphics.transformPoint(cx, cy)
+    pointerQueue[#pointerQueue + 1] = { gx, gy, dir }
+end
+
+local function flushPointers()
+    for i, p in ipairs(pointerQueue) do
+        local cx, cy = love.graphics.inverseTransformPoint(p[1], p[2])
+        local dir = p[3]
+        love.graphics.setColor(0, 0, 0, 0.5)
+        love.graphics.polygon("fill", cx - 14 * dir + 3, cy - 17 + 3, cx - 14 * dir + 3, cy + 17 + 3, cx + 14 * dir + 3, cy + 3)
+        love.graphics.setColor(1, 0.85, 0.3, 1)
+        love.graphics.polygon("fill", cx - 14 * dir, cy - 17, cx - 14 * dir, cy + 17, cx + 14 * dir, cy)
+        pointerQueue[i] = nil
+    end
 end
 
 local function drawButton(it, selected)
@@ -684,7 +700,8 @@ function Menu.update(dt)
             Settings.save()
         end
     end
-    if (mx ~= lastMx or my ~= lastMy) and not dragging and not (screenName == "main" and introT < 1.6) then
+    if (mx ~= lastMx or my ~= lastMy) and not dragging and not (screenName == "main" and introT < 1.6)
+            and not (Menu.overlayOpen and Menu.overlayOpen()) then
         lastMx, lastMy = mx, my
         for i, it in ipairs(current.items) do
             if inRect(it.rect, mx, my) then
@@ -715,6 +732,8 @@ function Menu.draw()
         Theme.color("dim", 0.8)
         Theme.printf("W/S or arrows: move   |   ENTER: select   |   ESC: back   |   F11: fullscreen",
             0, H - 56, W, "center")
+
+        flushPointers()
     end
 
     if fade.a > 0 then
