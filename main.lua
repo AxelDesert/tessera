@@ -21,16 +21,26 @@ local CashoutScreen = require("ui.cashout_screen")
 local DiceBoard  = require("ui.dice_board")
 local FarkleAnim   = require("ui.animation")
 local Menu         = require("ui.menu")
+local Fx           = require("ui.fx")
+local Celebration  = require("ui.celebration")
 
 local ROLL_TIME = 0.8
 local START_MONEY = 4   -- like Balatro
 local SIDEBAR_W = Screen.SIDEBAR_W
+local AREA_X, AREA_W = SIDEBAR_W + 20, Screen.W - SIDEBAR_W - 40   -- play area right of the sidebar
 
 local dice, bg, source
-local state = "ready" -- ready | rolling | selecting | scoring | snapping | decide | farkled | cashout | shop | won | lost
+local state = "ready" -- ready | rolling | selecting | scoring | snapping | decide | banking | celebrating
+                      -- | farkled | cashout | shop | won | lost
 local roundScore, message = 0, "Press SPACE to roll"
 local pendingScore = 0
 local snapTimer = 0
+
+-- numbers shown in the sidebar count up/down to the real values (see HUD.counters)
+local scoreC, roundC, moneyC = Fx.counter(0), Fx.counter(0), Fx.counter(START_MONEY)
+HUD.counters = { score = scoreC, round = roundC, money = moneyC }
+local bank = nil            -- { result, points, hold } while the banked points count into the floor score
+local afterCelebration = nil
 
 local player, fm, shop, shopScreen, cashoutScreen
 local scorePanel
@@ -52,6 +62,41 @@ local function newGame()
     roundScore = 0
     state = "ready"
     message = "Press SPACE to roll"
+    scoreC:snap(0); roundC:snap(0); moneyC:snap(player.money)
+    bank, afterCelebration, Celebration.active = nil, nil, false
+end
+
+-- Effects for each step of the score animation (see ScorePanel.onStep)
+local function onScoreStep(step, index)
+    local R = scorePanel.rects or { chips = { x = 240, y = 700 }, mult = { x = 240, y = 700 }, total = { x = 240, y = 760 } }
+    local pitch = 1 + 0.07 * (index - 1)          -- every step sounds a bit higher
+
+    if step == nil then
+        -- final total: the big moment
+        local total = pendingScore
+        local punch = math.min(0.75, 0.3 + math.log10(total + 1) * 0.08)
+        Fx.burst(R.total.x, R.total.y, Theme.colors.gold, 40, 560)
+        Fx.ring(R.total.x, R.total.y, Theme.colors.gold, 220)
+        local cx, cy = DiceBoard.popSelected(dice, Theme.colors.gold, 24)
+        Fx.text(cx, cy - 170, "+" .. Scoring.formatNumber(total), Theme.colors.gold, true)
+        Fx.shake(punch)
+        Fx.play("score", pitch)
+    elseif step.kind == "joker" then
+        JokerBar.trigger(step.slot)
+        local jx, jy = JokerBar.cardCenter(player, step.slot, AREA_X, 20, AREA_W)
+        Fx.burst(jx, jy, Theme.colors.gold, 26, 420)
+        Fx.text(jx, jy + JokerBar.HEIGHT / 2 + 70, step.text, Theme.colors.gold, false, 15)
+        Fx.burst(R.mult.x, R.mult.y, Theme.colors.mult, 12, 300)
+        Fx.shake(0.22)
+        Fx.play("joker", pitch)
+    else
+        Fx.burst(R.chips.x, R.chips.y, Theme.colors.chips, 16, 340)
+        Fx.burst(R.mult.x, R.mult.y, Theme.colors.mult, 16, 340)
+        local cx, cy = DiceBoard.popSelected(dice, Theme.colors.chips, 10)
+        Fx.text(cx, cy - 150, step.label, Theme.colors.text)
+        Fx.shake(0.16)
+        Fx.play("chip", pitch)
+    end
 end
 
 function love.load()
@@ -67,6 +112,7 @@ function love.load()
     bg = love.graphics.newImage("assets/wallpaper.png")
     DiceBoard.load()
     FarkleAnim.load()
+    Fx.load()
     source = love.audio.newSource("audio/music.mp3", "stream")
     
     dice = {}
@@ -74,6 +120,7 @@ function love.load()
         dice[i] = {value = 1, rolling = 0, selected = false, kept = false, dying = false, x = nil}
     end
     scorePanel = ScorePanel.new()
+    scorePanel.onStep = onScoreStep
     
     newGame()
 
@@ -132,6 +179,7 @@ local function leaveShop()
     resetDice()
     scorePanel:reset()
     roundScore = 0
+    scoreC:snap(0); roundC:snap(0)
     state, message = "ready", "Press SPACE to roll"
 end
 
@@ -143,14 +191,16 @@ end
 
 local function leaveCashout()
     fm:collect_payout()
+    -- the money counter in the sidebar counts up while the shop opens
+    local mx, my = HUD.moneyCenter(0, 0, SIDEBAR_W)
+    Fx.burst(mx, my, Theme.colors.gold, 30, 420)
+    Fx.ring(mx, my, Theme.colors.gold, 140)
+    Fx.play("bank")
     openShop()
 end
 
-local function endRound(points, farkled)
-    local result = fm:submit_round(points)
-    roundScore = 0
-    scorePanel:reset()
-
+-- What happens once a round is over (after the banked points have counted in)
+local function resolveRound(result, points, farkled)
     if result == "playing" then
         if farkled then
             state, message = "farkled", "Press SPACE for the next round"
@@ -159,15 +209,38 @@ local function endRound(points, farkled)
             state, message = "ready", "Banked " .. points .. "! Press SPACE to roll"
         end
     elseif result == "floor_cleared" then
-        openCashout()
+        state, message = "celebrating", ""
+        Celebration.start("FLOOR CLEARED!", ("Floor %d beaten with %d points"):format(fm.floor, fm.score))
+        afterCelebration = openCashout
     elseif result == "game_won" then
-        state = "won"
+        state, message = "celebrating", ""
         Settings.recordRun(player.floors_cleared, true)
-        message = ("YOU ESCAPED THE CASINO! +$%d  |  Press R to play again"):format(fm.lastReward)
+        Celebration.start("YOU ESCAPED!", "The casino could not hold you")
+        afterCelebration = function()
+            state = "won"
+            message = ("YOU ESCAPED THE CASINO! +$%d  |  Press R to play again"):format(fm.lastReward)
+        end
     elseif result == "game_lost" then
         state = "lost"
         Settings.recordRun(player.floors_cleared, false)
         message = (farkled and "FARKLE! " or "") .. "Out of rounds, you lose.  Press R to restart"
+    end
+end
+
+local function endRound(points, farkled)
+    local result = fm:submit_round(points)
+    roundScore = 0
+    scorePanel:reset()
+
+    if farkled or points <= 0 then
+        resolveRound(result, points, farkled)
+    else
+        -- the round score drains into the floor score, then the round resolves
+        state, message = "banking", ""
+        bank = { result = result, points = points, hold = 0.35, landed = false }
+        local sx, sy = HUD.scoreCenter(0, 0, SIDEBAR_W)
+        Fx.ring(sx, sy, Theme.colors.gold, 160)
+        Fx.play("bank")
     end
 end
 
@@ -220,6 +293,53 @@ function love.update(dt)
     end
     if Menu.visible then return end   -- title screen / pause: the game is frozen
 
+    Fx.update(dt)
+    JokerBar.update(dt)
+    DiceBoard.update(dt, dice, state == "selecting")
+    FarkleAnim.update(dt)
+
+    -- sidebar counters
+    scoreC:set(fm.score); roundC:set(roundScore); moneyC:set(player.money)
+    if scoreC:update(dt) then
+        local sx, sy = HUD.scoreCenter(0, 0, SIDEBAR_W)
+        local p = scoreC.value / math.max(1, fm.target)
+        Fx.sparkle(sx + (math.random() - 0.5) * 160, sy, Theme.colors.chips)
+        Fx.play("tick", 1 + math.min(1, p) * 0.8)
+    end
+    roundC:update(dt)
+    if moneyC:update(dt) then
+        local mx, my = HUD.moneyCenter(0, 0, SIDEBAR_W)
+        Fx.sparkle(mx + (math.random() - 0.5) * 120, my, Theme.colors.gold)
+        Fx.play("tick", 1.6)
+    end
+
+    if state == "banking" then
+        if not scoreC:busy() and not roundC:busy() then
+            if not bank.landed then
+                bank.landed = true
+                local sx, sy = HUD.scoreCenter(0, 0, SIDEBAR_W)
+                Fx.burst(sx, sy, Theme.colors.gold, 24, 380)
+                Fx.shake(0.25)
+            end
+            bank.hold = bank.hold - dt
+            if bank.hold <= 0 then
+                local b = bank
+                bank = nil
+                resolveRound(b.result, b.points, false)
+            end
+        end
+        return
+    end
+
+    if state == "celebrating" then
+        if Celebration.update(dt) then
+            local nextStep = afterCelebration
+            afterCelebration = nil
+            if nextStep then nextStep() end
+        end
+        return
+    end
+
     if state == "cashout" then cashoutScreen:update(dt) end
     if state == "scoring" then
         if scorePanel:update(dt) then finishScoring() end
@@ -245,8 +365,6 @@ function love.update(dt)
     end
 
     scorePanel:update(dt)
-    DiceBoard.update(dt, dice)
-    FarkleAnim.update(dt)
 
     if state ~= "rolling" then return end
     local stillRolling = false
@@ -262,7 +380,7 @@ function love.update(dt)
             endRound(0, true)
         else
             state = "selecting"
-            message = "Click dice to select, ENTER to confirm"
+            message = "Click dice (or A/D + W/S) to select, ENTER to confirm"
         end
     end
 end
@@ -277,12 +395,16 @@ function love.draw()
     end
 
     local w, h = Screen.W, Screen.H
-    local areaX, areaW = SIDEBAR_W + 20, w - SIDEBAR_W - 40
+    local areaX, areaW = AREA_X, AREA_W
 
     love.graphics.setColor(1, 1, 1)
     local bw, bh = bg:getDimensions()
     local cover = math.max((Screen.right - Screen.left) / bw, (Screen.bottom - Screen.top) / bh)
     love.graphics.draw(bg, w / 2, h / 2, 0, cover, cover, bw / 2, bh / 2)
+
+    -- everything on the table shakes together (Options > Screen shake)
+    love.graphics.push()
+    love.graphics.translate(Fx.offset())
 
     HUD.draw(fm, player, roundScore, 0, 0, SIDEBAR_W)
     scorePanel:draw(HUD.scoreRect(0, 0, SIDEBAR_W))
@@ -293,16 +415,21 @@ function love.draw()
         cashoutScreen:draw(areaX, 20, areaW)
     else
         JokerBar.draw(player, areaX, 20, areaW)
-        DiceBoard.draw(dice)
+        DiceBoard.draw(dice, state == "selecting")
 
         love.graphics.setFont(Theme.fonts.normal)
         Theme.color("text")
         Theme.printf(message, areaX, h - 90, areaW, "center")
     end
 
+    Celebration.draw()
+
     love.graphics.setFont(Theme.fonts.small)
     Theme.color("dim", 0.6)
     Theme.printf("ESC: menu", w - 260, h - 50, 240, "right")
+
+    Fx.draw()
+    love.graphics.pop()
 
     FarkleAnim.draw()
     Menu.draw()          -- pause overlay + screen fades
@@ -318,6 +445,7 @@ function love.mousepressed(mx, my, button)
     if Menu.mousepressed(mx, my, button) then return end
     if HUD.comboButton:hit(mx, my) then ComboHelp.toggle() return end
     if HUD.newRunButton:hit(mx, my) then newGame() return end
+    if state == "celebrating" then Celebration.skip() return end
 
     if state == "cashout" then
         if cashoutScreen:mousepressed(mx, my) == "next" then leaveCashout() end
@@ -345,6 +473,15 @@ function love.keypressed(key)
     if Menu.visible then Menu.keypressed(key) return end
     if key == "escape" then Menu.open("pause") return end
     if key == "h" then ComboHelp.toggle() return end
+
+    if state == "celebrating" then
+        if key == "space" or key == "return" then Celebration.skip() end
+        return
+    end
+    if state == "selecting" and DiceBoard.keypressed(key, dice) then
+        refreshPreview()
+        return
+    end
 
     if (key == "space" or key == "return") and state == "cashout" then
         if cashoutScreen:advance() == "next" then leaveCashout() end

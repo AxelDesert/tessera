@@ -19,6 +19,7 @@
 local Theme    = require("ui.theme")
 local Screen   = require("ui.screen")
 local Settings = require("core.settings")
+local Fx       = require("ui.fx")
 
 local Menu = { visible = true, mode = "main" }
 
@@ -61,26 +62,7 @@ local dragging = nil                               -- slider item being dragged
 ---------------------------------------------------------------------------
 -- tiny synthesized UI sounds (no audio files needed)
 ---------------------------------------------------------------------------
--- notes = { {freq, seconds [, endFreq]}, ... }   pulse wave with a decay envelope
-local function synth(notes, vol)
-    local rate, total = 22050, 0
-    for _, n in ipairs(notes) do total = total + math.floor(n[2] * rate) end
-    local sd = love.sound.newSoundData(total, rate, 16, 1)
-    local pos, phase = 0, 0
-    for _, n in ipairs(notes) do
-        local len = math.floor(n[2] * rate)
-        local f0, f1 = n[1], n[3] or n[1]
-        for i = 0, len - 1 do
-            local p = i / len
-            phase = phase + (f0 + (f1 - f0) * p) / rate
-            local wave = ((phase % 1) < 0.3) and 1 or -1
-            local env = math.min(1, i / (rate * 0.004)) * (1 - p) ^ 1.5
-            sd:setSample(pos + i, wave * env * vol)
-        end
-        pos = pos + len
-    end
-    return love.audio.newSource(sd, "static")
-end
+local synth = Fx.synth   -- see ui/fx.lua
 
 local function play(name)
     local s, v = sfx[name], Settings.data.sfx
@@ -481,16 +463,21 @@ local function buildScreens()
                              function(v) Settings.setFullscreen(v) end),
         toggle("Screen shake", function() return Settings.data.shake end,
                                function(v) Settings.data.shake = v end),
+        toggle("Floaty dice", function() return Settings.data.float end,
+                              function(v) Settings.data.float = v end),
+        toggle("Highlight scoring dice", function() return Settings.data.hints end,
+                                         function(v) Settings.data.hints = v end),
         button("Back", "button", function() Settings.save(); back(Menu.mode) end),
     }
     local OW, ROW, ROWGAP = 1180, 80, 12
-    local OH = 120 + 4 * (ROW + ROWGAP) + 20 + 84 + 46
+    local NROWS = #options.items - 1                 -- every item but the Back button
+    local OH = 120 + NROWS * (ROW + ROWGAP) + 20 + 84 + 46
     function options.layout()
         local px, py = (W - OW) / 2, (H - OH) / 2
-        for i = 1, 4 do
+        for i = 1, NROWS do
             options.items[i].rect = { x = px + 40, y = py + 120 + (i - 1) * (ROW + ROWGAP), w = OW - 80, h = ROW }
         end
-        options.items[5].rect = { x = W / 2 - 180, y = py + 120 + 4 * (ROW + ROWGAP) + 20, w = 360, h = 84 }
+        options.items[NROWS + 1].rect = { x = W / 2 - 180, y = py + 120 + NROWS * (ROW + ROWGAP) + 20, w = 360, h = 84 }
     end
     function options.draw()
         local px, py = (W - OW) / 2, (H - OH) / 2

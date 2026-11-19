@@ -5,6 +5,8 @@
 --   panel:update(dt)                   returns true once, when the animation ends
 --   panel:reset()                      back to 0 x 0
 --   panel:draw(x, y, w)
+--   panel.onStep(step, index)          (optional) called as each step lands; step is nil for the total
+--   panel.rects                        chips / mult / total positions from the last draw (for effects)
 
 local Theme   = require("ui.theme")
 local Scoring = require("core.scoring")
@@ -60,10 +62,12 @@ function ScorePanel:update(dt)
         self.chips, self.mult = s.chips, s.mult
         self.label, self.detail, self.kind = s.label, s.text, s.kind
         self.pop, self.timer = 1, STEP_TIME
+        if self.onStep then self.onStep(s, self.index) end
     elseif not self.showTotal then
         self.showTotal, self.total = true, self.result.total
         self.label, self.detail, self.kind = "", "", "combo"
         self.pop, self.timer = 1, HOLD_TIME
+        if self.onStep then self.onStep(nil, self.index + 1) end
     else
         self.busy = false
         return true
@@ -96,6 +100,11 @@ function ScorePanel:draw(x, y, w)
     local boxW, by, bh = (w - 24 - gap) / 2, y + 78, 108
     local chipsX, multX = x + 12, x + 12 + boxW + gap
     local scale = 1 + 0.3 * self.pop
+    self.rects = {
+        chips = { x = chipsX + boxW / 2, y = by + bh / 2 },
+        mult  = { x = multX + boxW / 2,  y = by + bh / 2 },
+        total = { x = x + w / 2,         y = y + 216 },
+    }
 
     Theme.box(chipsX, by, boxW, bh, "chips")
     Theme.box(multX, by, boxW, bh, "mult")

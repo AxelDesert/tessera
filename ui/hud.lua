@@ -8,12 +8,39 @@ local Screen = require("ui.screen")
 
 local HUD = {}
 
+-- Optional animated values set by main (Fx.counter objects). When missing, the real values are shown.
+--   HUD.counters = { score = c, round = c, money = c }
+HUD.counters = {}
+
 HUD.comboButton  = Button.new("Combos\n[H]", "button_red")
 HUD.newRunButton = Button.new("New\nrun", "button_orange")
 
 local REF_W, BOTTOM_SHIFT = 604, 16
 
 local function scale(w) return (w - 6) / REF_W end
+
+-- Centers of the floor score and money boxes (for effects)
+function HUD.scoreCenter(x, y, w)
+    local k = scale(w)
+    return x + 389 * k, y + 467 * k
+end
+
+function HUD.moneyCenter(x, y, w)
+    local k = scale(w)
+    return x + 420 * k, y + 1072 * k + BOTTOM_SHIFT
+end
+
+-- Draws fn() scaled by (1 + pop) around (cx, cy)
+local function popped(pop, cx, cy, fn)
+    if pop <= 0 then return fn() end
+    local s = 1 + 0.25 * pop
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.scale(s)
+    love.graphics.translate(-cx, -cy)
+    fn()
+    love.graphics.pop()
+end
 
 -- Where the score panel goes (between the round score and the stat boxes)
 function HUD.scoreRect(x, y, w)
@@ -118,11 +145,29 @@ function HUD.draw(fm, player, roundScore, x, y, w)
     Theme.printf("Floor\nscore", rx + Z(18), ry + (rh - 6 - f.normal:getHeight() * 1.6) / 2, Z(170), "left")
     local sx, sy, sw, sh = x + Z(198), y + Z(432), Z(382), Z(70)
     Theme.box(sx, sy, sw, sh, "inset")
-    chipNumber(tostring(fm.score), "text", sx + sw / 2 - (roundScore > 0 and Z(40) or 0), sy + sh / 2 - 2, sw - 40, Z(44))
-    if roundScore > 0 then
-        love.graphics.setFont(f.small)
-        Theme.color("gold")
-        Theme.printf("+" .. roundScore, sx, sy + (sh - f.small:getHeight()) / 2 - 2, sw - 14, "right")
+    local C = HUD.counters
+    local score = C.score and C.score.value or fm.score
+    local shownRound = C.round and C.round.value or roundScore
+    local scx = sx + sw / 2 - (shownRound > 0 and Z(40) or 0)
+    popped(C.score and C.score.pop or 0, scx, sy + sh / 2, function()
+        chipNumber(tostring(score), score >= fm.target and "gold" or "text", scx, sy + sh / 2 - 2, sw - 40, Z(44))
+    end)
+    if shownRound > 0 then
+        local rxr = sx + sw - 14
+        popped(C.round and C.round.pop or 0, rxr - 30, sy + sh / 2, function()
+            love.graphics.setFont(f.small)
+            Theme.color("gold")
+            Theme.printf("+" .. shownRound, sx, sy + (sh - f.small:getHeight()) / 2 - 2, sw - 14, "right")
+        end)
+    end
+
+    -- progress toward the target: a thin bar under the floor score
+    local prog = math.min(1, score / math.max(1, fm.target))
+    love.graphics.setColor(0, 0, 0, 0.35)
+    love.graphics.rectangle("fill", rx + Z(18), ry + rh - Z(14), rw - Z(36), Z(6), 3, 3)
+    if prog > 0 then
+        Theme.color(prog >= 1 and "gold" or "chips")
+        love.graphics.rectangle("fill", rx + Z(18), ry + rh - Z(14), (rw - Z(36)) * prog, Z(6), 3, 3)
     end
 
     -- stat boxes (Hands / Discards in the original)
@@ -138,8 +183,12 @@ function HUD.draw(fm, player, roundScore, x, y, w)
     local mx, my, mw2, mh = x + Z(242), y + Z(1022) + s, Z(356), Z(120)
     Theme.box(mx, my, mw2, mh, "blue")
     Theme.box(mx + Z(14), my + Z(10), mw2 - Z(28), mh - Z(28), "inset")
-    Theme.color("gold")
-    centered("$" .. player.money, f.num, mx + mw2 / 2, my + Z(10) + (mh - Z(28)) / 2 - 2, mw2 - Z(60))
+    local cash = C.money and C.money.value or player.money
+    local mcx, mcy = mx + mw2 / 2, my + Z(10) + (mh - Z(28)) / 2 - 2
+    popped(C.money and C.money.pop or 0, mcx, mcy, function()
+        Theme.color("gold")
+        centered("$" .. cash, f.num, mcx, mcy, mw2 - Z(60))
+    end)
 
     -- floor / round
     local round = math.min(fm:get_rounds(fm.floor), fm:get_rounds(fm.floor) - fm.rounds_left + 1)

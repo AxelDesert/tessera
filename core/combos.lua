@@ -121,6 +121,37 @@ function Combos.canScore(values)
     return #Combos.evaluate(values) > 0
 end
 
+-- Which of these dice can be part of a combo? Returns mask[i] = true for each
+-- scoring die (used to highlight dice while the player picks).
+function Combos.scoringMask(values)
+    local mask, found = {}, Combos.evaluate(values)
+    if #found == 0 then return mask end
+
+    -- a six-dice combo uses every die
+    if #found == 1 and found[1].used == 6 and #values == 6 then
+        for i = 1, #values do mask[i] = true end
+        return mask
+    end
+
+    local freq = {0, 0, 0, 0, 0, 0}
+    for _, v in ipairs(values) do freq[v] = freq[v] + 1 end
+    for i, v in ipairs(values) do
+        mask[i] = v == 1 or v == 5 or freq[v] >= 3
+    end
+
+    -- small straight: one die of each face 2..5, plus a 1 (or a 6 if there is no 1)
+    for _, e in ipairs(found) do
+        if e.id == "small_straight" then
+            local need = { [2] = true, [3] = true, [4] = true, [5] = true }
+            if freq[1] >= 1 then need[1] = true else need[6] = true end
+            for i, v in ipairs(values) do
+                if need[v] then mask[i], need[v] = true, nil end
+            end
+        end
+    end
+    return mask
+end
+
 -- A selection is valid only if EVERY selected die is part of a combo.
 function Combos.isValidSelection(values)
     local found = Combos.evaluate(values)

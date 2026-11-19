@@ -62,7 +62,7 @@ function Scoring.compute(values, jokers, extra)
     end
 
     local ctx = buildContext(values, entries, extra)
-    for _, joker in ipairs(jokers or {}) do
+    for slot, joker in ipairs(jokers or {}) do
         local fx = joker.effect and joker.effect(ctx)   -- payout-only jokers have no effect
         if fx then
             chips = chips + (fx.chips or 0)
@@ -70,6 +70,7 @@ function Scoring.compute(values, jokers, extra)
             if fx.xmult then mult = mult * fx.xmult end
             steps[#steps + 1] = {
                 kind = "joker", label = joker.name, text = describe(fx.chips, fx.mult, fx.xmult),
+                slot = slot,   -- position in the joker bar, so the UI can animate that card
                 chips = chips, mult = mult,
             }
         end
