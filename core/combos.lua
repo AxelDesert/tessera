@@ -9,6 +9,7 @@
 --   chips : number, or function(face) -> number
 --   mult  : added to the base mult (see scoring.lua)
 --   used  : how many dice the combo consumes
+--   up    : what one upgrade gives (combo cards, see consumables.lua)
 --
 -- With the default numbers a lone combo is worth the same as the old
 -- console version (ex: three 2s = 100 chips x (1 + 1) = 200).
@@ -16,28 +17,28 @@
 local Combos = {}
 
 Combos.LIST = {
-    { id = "single_one",     name = "Single 1",        used = 1, chips = 100, mult = 0,
+    { id = "single_one", up = { chips = 30, mult = 1 },     name = "Single 1",        used = 1, chips = 100, mult = 0,
       desc = "Each 1 that is not part of another combo",  example = {1} },
-    { id = "single_five",    name = "Single 5",        used = 1, chips = 50,  mult = 0,
+    { id = "single_five", up = { chips = 20, mult = 1 },    name = "Single 5",        used = 1, chips = 50,  mult = 0,
       desc = "Each 5 that is not part of another combo",  example = {5} },
-    { id = "three_kind",     name = "Three of a kind", used = 3, mult = 1, showFace = true,
+    { id = "three_kind", up = { chips = 60, mult = 1 },     name = "Three of a kind", used = 3, mult = 1, showFace = true,
       chips = function(face) return face == 1 and 500 or face * 50 end,
       chipsLabel = "50 x face (500 for 1s)",              example = {4, 4, 4} },
-    { id = "four_kind",      name = "Four of a kind",  used = 4, chips = 500,  mult = 1, showFace = true,
+    { id = "four_kind", up = { chips = 120, mult = 2 },      name = "Four of a kind",  used = 4, chips = 500,  mult = 1, showFace = true,
       example = {3, 3, 3, 3} },
-    { id = "five_kind",      name = "Five of a kind",  used = 5, chips = 1000, mult = 1, showFace = true,
+    { id = "five_kind", up = { chips = 250, mult = 3 },      name = "Five of a kind",  used = 5, chips = 1000, mult = 1, showFace = true,
       example = {2, 2, 2, 2, 2} },
-    { id = "six_kind",       name = "Six of a kind",   used = 6, chips = 1000, mult = 2, showFace = true,
+    { id = "six_kind", up = { chips = 400, mult = 4 },       name = "Six of a kind",   used = 6, chips = 1000, mult = 2, showFace = true,
       example = {6, 6, 6, 6, 6, 6} },
-    { id = "small_straight", name = "Small straight",  used = 5, chips = 250,  mult = 2,
+    { id = "small_straight", up = { chips = 100, mult = 2 }, name = "Small straight",  used = 5, chips = 250,  mult = 2,
       desc = "1-2-3-4-5 or 2-3-4-5-6",                    example = {1, 2, 3, 4, 5} },
-    { id = "large_straight", name = "Straight",        used = 6, chips = 750,  mult = 1,
+    { id = "large_straight", up = { chips = 200, mult = 3 }, name = "Straight",        used = 6, chips = 750,  mult = 1,
       example = {1, 2, 3, 4, 5, 6} },
-    { id = "three_pairs",    name = "Three pairs",     used = 6, chips = 750,  mult = 1,
+    { id = "three_pairs", up = { chips = 200, mult = 3 },    name = "Three pairs",     used = 6, chips = 750,  mult = 1,
       example = {1, 1, 3, 3, 6, 6} },
-    { id = "two_triples",    name = "Two triples",     used = 6, chips = 1250, mult = 1,
+    { id = "two_triples", up = { chips = 250, mult = 3 },    name = "Two triples",     used = 6, chips = 1250, mult = 1,
       example = {2, 2, 2, 5, 5, 5} },
-    { id = "four_pair",      name = "Four + a pair",   used = 6, chips = 750,  mult = 1,
+    { id = "four_pair", up = { chips = 200, mult = 3 },      name = "Four + a pair",   used = 6, chips = 750,  mult = 1,
       example = {4, 4, 4, 4, 6, 6} },
 }
 
@@ -45,10 +46,14 @@ local DEFS = {}
 for _, def in ipairs(Combos.LIST) do DEFS[def.id] = def end
 
 -- Builds one result entry: { id, label, chips, mult, used }
+-- `levels` = player.levels: how many upgrades each combo has { [id] = { chips = n, mult = n } }
+local levels
 local function makeEntry(id, face, times)
     local def = DEFS[id]
     times = times or 1
     local chips = type(def.chips) == "function" and def.chips(face) or def.chips
+    local lv = levels and levels[id]
+    if lv then chips = chips + lv.chips * def.up.chips end
     local label = def.name
     if def.showFace then label = label .. " (" .. face .. "s)" end
     if times > 1 then label = label .. " x" .. times end
@@ -56,14 +61,15 @@ local function makeEntry(id, face, times)
         id    = id,
         label = label,
         chips = chips * times,
-        mult  = def.mult * times,
+        mult  = def.mult * times + (lv and lv.mult * def.up.mult or 0),
         used  = def.used * times,
     }
 end
 
 -- Returns the list of combos found in `values` (a list of die faces).
 -- Same rules as the original console version.
-function Combos.evaluate(values)
+function Combos.evaluate(values, comboLevels)
+    levels = comboLevels
     local freq = {0, 0, 0, 0, 0, 0}
     for _, v in ipairs(values) do freq[v] = freq[v] + 1 end
 
@@ -114,6 +120,50 @@ function Combos.evaluate(values)
     if freq[5] > 0 then found[#found + 1] = makeEntry("single_five", 5, freq[5]) end
 
     return found
+end
+
+-- Gives wild dice the faces that score best. wild[i] = true for wild dice.
+-- all = every die must be used (a selection). Returns nil when that is impossible.
+-- A wild die may join any combo of 3+ dice but never counts as a lone 1 or 5.
+function Combos.resolve(values, wild, comboLevels, all)
+    local slots, try = {}, {}
+    for i, v in ipairs(values) do
+        try[i] = v
+        if wild and wild[i] then slots[#slots + 1] = i end
+    end
+    if #slots == 0 then return try end
+
+    local best, bestScore
+    local function check()
+        local found = Combos.evaluate(try, comboLevels)
+        local chips, mult, used, lone = 0, 1, 0, { [1] = 0, [5] = 0 }
+        for _, e in ipairs(found) do
+            chips, mult, used = chips + e.chips, mult + e.mult, used + e.used
+            if e.id == "single_one" then lone[1] = e.used elseif e.id == "single_five" then lone[5] = e.used end
+        end
+        if all and (used == 0 or used ~= #try) then return end
+        for face, n in pairs(lone) do
+            local total, wilds = 0, 0
+            for i, v in ipairs(try) do
+                if v == face then total, wilds = total + 1, wilds + (wild[i] and 1 or 0) end
+            end
+            if wilds + n > total then return end
+        end
+        local score = chips * mult
+        if not bestScore or score > bestScore then
+            best, bestScore = {}, score
+            for i, v in ipairs(try) do best[i] = v end
+        end
+    end
+    local function fill(k, from)          -- order does not matter, so faces never decrease
+        if k > #slots then check() return end
+        for face = from, 6 do
+            try[slots[k]] = face
+            fill(k + 1, face)
+        end
+    end
+    fill(1, 1)
+    return best
 end
 
 -- Can this set of dice score anything at all? (used for the Farkle check)

@@ -514,6 +514,8 @@ local function buildScreens()
         { "Push or bank", "After scoring, press R to roll the dice you have left, or B to bank your points. Use all six dice and you get six fresh ones: HOT DICE!" },
         { "Farkle!",      "If a roll has nothing that scores, you FARKLE and lose everything you built up in that round. Greed is expensive." },
         { "Shop",         "Clearing a floor pays out cash, with interest on your savings. Spend it on Jokers that bend the rules, and click a Joker to sell it. Every 5th floor is a boss with one round less." },
+        { "Special dice", "The shop sells colored dice that replace one of your six for the whole run. Hover a die on the table to see what it does." },
+        { "Cards",        "Combo cards upgrade the Chips or the Mult of a combo. Charms are one-time tricks. Click a card, or press its number, to use or sell it." },
     }
     local howto = {}
     howto.items = {
@@ -521,18 +523,18 @@ local function buildScreens()
         button("Back",   "button", function() back("main") end),
     }
     howto.horizontal = true
-    local CARD_W, CARD_GAP, PAD = 680, 40, 24
-    local HW = CARD_W * 2 + CARD_GAP + 80
+    local COLS, CARD_W, CARD_GAP, PAD = 3, 540, 28, 24
+    local HW = CARD_W * COLS + CARD_GAP * (COLS - 1) + 80
     local cache
     local function measure()
         if cache then return cache end
         local body, title = Theme.fonts.small, Theme.fonts.normal
-        local rows, y, cards = 3, 0, {}
+        local rows, y, cards = math.ceil(#STEPS / COLS), 0, {}
         local rowH = {}
         for i, s in ipairs(STEPS) do
             local _, lines = body:getWrap(s[2], CARD_W - PAD * 2)
             local h = PAD + 46 + 8 + #lines * body:getHeight() + PAD - 4
-            local row = math.floor((i - 1) / 2) + 1
+            local row = math.floor((i - 1) / COLS) + 1
             rowH[row] = math.max(rowH[row] or 0, h)
         end
         local total = 0
@@ -556,7 +558,7 @@ local function buildScreens()
         local cx0 = px + 40
         local rowY = py + 100
         for i, s in ipairs(STEPS) do
-            local col, row = (i - 1) % 2, math.floor((i - 1) / 2) + 1
+            local col, row = (i - 1) % COLS, math.floor((i - 1) / COLS) + 1
             if col == 0 and row > 1 then rowY = rowY + m.rowH[row - 1] + 24 end
             local x, y = cx0 + col * (CARD_W + CARD_GAP), rowY
             Theme.box(x, y, CARD_W, m.rowH[row], "inset")

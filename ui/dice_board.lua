@@ -3,6 +3,8 @@ local Settings = require("core.settings")
 local Theme    = require("ui.theme")
 local Combos   = require("core.combos")
 local Fx       = require("ui.fx")
+local DiceTypes  = require("core.dice_types")
+local JokerIcons = require("ui.joker_icons")
 
 local DiceBoard = {}
 
@@ -17,6 +19,7 @@ local hovered = nil      -- die currently under the mouse (for the hover tick)
 local cursor = nil       -- die picked with the keyboard (A/D or arrows)
 local keyboard = false   -- true after a key was used, until the mouse moves
 local lastMx, lastMy = 0, 0
+local maskKey, lastMask = nil, {}
 
 -- Absorbed animation logic!
 local function newAnimation(image, width, height)
@@ -126,6 +129,17 @@ function DiceBoard.popSelected(dice, color, sparks)
     return sx / n, sy / n
 end
 
+-- Kick one die (special die triggering). Returns its center.
+function DiceBoard.popDie(dice, index, color, sparks)
+    local _, y0, scale = layout(visible(dice))
+    local d = dice[index]
+    fx(d, index)
+    local cx, cy = center(d, y0, scale)
+    d.pop = 1
+    Fx.burst(cx, cy, color, sparks, 360)
+    return cx, cy
+end
+
 -- Select / deselect one die, with its effects
 local function toggle(d, y0, scale)
     d.selected = not d.selected
@@ -205,14 +219,19 @@ function DiceBoard.update(dt, dice, interactive)
     -- which free dice could score (Options > Highlight scoring dice)
     local mask, free = {}, {}
     if interactive and Settings.data.hints then
-        local values = {}
+        local values, wild, key = {}, {}, ""
         for i, d in ipairs(dice) do
             if not d.kept and not d.dying then
                 values[#values + 1] = d.value
+                wild[#values] = DiceTypes.get(d.type).wild
                 free[#free + 1] = i
+                key = key .. i .. d.value .. (wild[#values] and "w" or "")
             end
         end
-        for n, ok in pairs(Combos.scoringMask(values)) do
+        if key ~= maskKey then       -- only when the table changed
+            maskKey, lastMask = key, Combos.scoringMask(Combos.resolve(values, wild) or values)
+        end
+        for n, ok in pairs(lastMask) do
             if ok then mask[free[n]] = true end
         end
     end
@@ -268,6 +287,59 @@ local function glow(quad, cx, cy, rot, s, c, a)
     love.graphics.setBlendMode("alpha")
 end
 
+-- One die with its type's tint and badge. face = quad or 1..6
+function DiceBoard.drawDie(typeId, face, cx, cy, rot, s, isSelected, still)
+    local t = DiceTypes.get(typeId)
+    local c = t.tint
+    local r, g, b = c[1], c[2], c[3]
+    if t.wild then                       -- slow rainbow
+        local k = love.timer.getTime() * 1.5
+        r, g, b = 0.8 + 0.2 * math.sin(k), 0.8 + 0.2 * math.sin(k + 2.1), 0.8 + 0.2 * math.sin(k + 4.2)
+        if still ~= false then face = anim.quads[1] end
+    end
+    if isSelected and t.id == "plain" then b = 0.6 end
+    love.graphics.setColor(r, g, b, t.id == "crystal" and 0.88 or 1)
+    local ox, oy = DICE_W / 2, DICE_H / 2
+    if type(face) == "number" then       -- the faces are not centered in their frames
+        ox, oy = ({ 94, 104, 113 })[(face - 1) % 3 + 1], face <= 3 and 95 or 109
+        face = anim.quads[face]
+    end
+    love.graphics.draw(anim.spriteSheet, face, cx, cy, rot, s, s, ox, oy)
+    if t.id == "plain" then return end
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.rotate(rot)
+    love.graphics.setColor(1, 1, 1, 1)
+    if t.wild then
+        if still ~= false then JokerIcons.draw("badge_wild", -9 * s, -7 * s, 4 * s) end
+    else
+        JokerIcons.draw("badge_" .. t.id, 68 * s, 72 * s, 2.5 * s)
+    end
+    love.graphics.pop()
+end
+
+-- What the special die under the mouse / cursor does
+function DiceBoard.drawTooltip(dice, interactive)
+    local i = interactive and (keyboard and cursor or hovered)
+    local d = i and dice[i]
+    if not d or d.kept or not d.x or (d.type or "plain") == "plain" then return end
+    local t = DiceTypes.get(d.type)
+    local _, y0, scale = layout(visible(dice))
+    local cx = center(d, y0, scale)
+    local w, f = 340, Theme.fonts
+    local _, lines = f.small:getWrap(t.desc, w - 30)
+    local h = 70 + #lines * f.small:getHeight()
+    local x = math.max(SIDEBAR_W + 10, math.min(Screen.W - w - 10, cx - w / 2))
+    local y = y0 - 60 - h
+    Theme.panel(x, y, w, h)
+    love.graphics.setFont(f.normal)
+    love.graphics.setColor(t.tint[1], t.tint[2], t.tint[3], 1)
+    Theme.printf(t.name, x, y + 10, w, "center")
+    love.graphics.setFont(f.small)
+    Theme.color("dim")
+    Theme.printf(t.desc, x + 15, y + 52, w - 30, "center")
+end
+
 function DiceBoard.draw(dice, interactive)
     local count = 0
     for _, d in ipairs(dice) do
@@ -309,9 +381,7 @@ function DiceBoard.draw(dice, interactive)
                 glow(quad, cx, cy, rot, s, Theme.colors.chips, 0.22 + 0.16 * math.sin(t * 4 + i * 0.6))
             end
 
-            if d.selected then love.graphics.setColor(1, 1, 0.6)
-            else love.graphics.setColor(1, 1, 1) end
-            love.graphics.draw(anim.spriteSheet, quad, cx, cy, rot, s, s, DICE_W / 2, DICE_H / 2)
+            DiceBoard.drawDie(d.type, quad, cx, cy, rot, s, d.selected, d.rolling <= 0)
         end
     end
 

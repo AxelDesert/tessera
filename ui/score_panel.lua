@@ -18,7 +18,7 @@ ScorePanel.__index = ScorePanel
 
 ScorePanel.HEIGHT = 244
 
-local STEP_TIME = 0.6   -- seconds each step (combo / joker) stays on screen
+local STEP_TIME = 0.6   -- seconds each step (combo / die / joker) stays on screen, shorter in long scores
 local HOLD_TIME = 0.9   -- pause on the final total
 
 function ScorePanel.new()
@@ -61,7 +61,7 @@ function ScorePanel:update(dt)
         local s = steps[self.index]
         self.chips, self.mult = s.chips, s.mult
         self.label, self.detail, self.kind = s.label, s.text, s.kind
-        self.pop, self.timer = 1, STEP_TIME
+        self.pop, self.timer = 1, math.max(0.22, STEP_TIME * 0.93 ^ (self.index - 1))
         if self.onStep then self.onStep(s, self.index) end
     elseif not self.showTotal then
         self.showTotal, self.total = true, self.result.total
@@ -89,7 +89,7 @@ function ScorePanel:draw(x, y, w)
 
     -- what is being counted right now (combo or joker name)
     love.graphics.setFont(f.normal)
-    Theme.color(self.kind == "joker" and "gold" or "text")
+    Theme.color(self.kind ~= "combo" and "gold" or "text")
     Theme.printf(self.label, x + 10, y + 2, w - 20, "center")
     love.graphics.setFont(f.small)
     Theme.color("dim")

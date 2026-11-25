@@ -417,7 +417,7 @@ add("xmult", "six_shooter", "Six Shooter", 9, "Six of a kind: x5 Mult", when(has
 add("xmult", "flat_broke", "Flat Broke", 6, "$0 held: x2.5 Mult", when(function(c) return c.money == 0 end, { xmult = 2.5 }))
 add("xmult", "mirror", "Mirror", 8, "Copies the joker to its left", function(ctx)
     local left = ctx.jokers and ctx.jokers[ctx.slot - 1]
-    if left and left.effect then return left.effect(ctx, left) end
+    if left and left.effect and left.id ~= "mirror" then return left.effect(ctx, left) end
 end)
 
 -- ===== money =====
@@ -448,5 +448,130 @@ add("utility", "bargain_bin", "Bargain Bin", 5, "Shop jokers cost $1 less", nil,
 add("utility", "window_shopper", "Window Shopper", 5, "+1 joker on sale in every shop", nil, { extra_offers = 1 })
 add("utility", "haggler", "Haggler", 4, "Shop rerolls cost $3 less", nil, { reroll_discount = 3 })
 add("utility", "pawn_ticket", "Pawn Ticket", 5, "Other jokers sell for what you paid", nil, { full_sell = true })
+
+---------------------------------------------------------------------------
+-- Jokers for special dice, combo upgrades and one-use cards.
+-- More ctx: ctx.types[id] / ctx.special (scored dice by type / special ones), ctx.owned_special, ctx.owned_kinds,
+-- ctx.upgrades (all combo upgrades), ctx.combo_level(id), ctx.cards (held). Hook: on_consume(self, player, card)
+-- Perks: card_slots, card_discount, extra_cards, no_crack
+---------------------------------------------------------------------------
+local function ofType(id) return function(c) return c.types[id] or 0 end end
+local function cards(c) return c.cards or 0 end
+local function sameCombo(self, c) return c.entries[1] and c.entries[1].id == self.last end
+local function showX(step)
+    return function(self) return ("Now x%.2f Mult"):format(1 + step * self.n) end
+end
+local function grownX(step)
+    return function(_, self) if self.n > 0 then return { xmult = 1 + step * self.n } end end
+end
+
+-- ===== chips =====
+add("chips", "gemcutter", "Gemcutter", 5, "+60 Chips per special die scored", per("chips", 60, function(c) return c.special end))
+add("chips", "blue_blood", "Blue Blood", 5, "+100 Chips per Sapphire Die scored", per("chips", 100, ofType("sapphire")))
+add("chips", "plain_jane", "Plain Jane", 4, "+30 Chips per plain die scored", per("chips", 30, ofType("plain")))
+add("chips", "bookworm", "Bookworm", 5, "+20 Chips per combo upgrade", per("chips", 20, function(c) return c.upgrades or 0 end))
+add("chips", "deep_pockets", "Deep Pockets", 4, "+80 Chips per card held", per("chips", 80, cards))
+add("chips", "big_spender", "Big Spender", 5, "+3 Chips per $1 spent this run (max 300)",
+    per("chips", 3, function(c) return math.min(100, c.stats and c.stats.spent or 0) end))
+add("chips", "countdown", "Countdown", 4, "+30 Chips per round left", per("chips", 30, function(c) return c.rounds_left or 0 end))
+add("chips", "sandcastle", "Sandcastle", 4, "+200 Chips, loses 10 every round", per("chips", 1, grown), {
+    start = 200, on_round = function(self) self.n = math.max(0, self.n - 10) end,
+    info = function(self) return ("Now +%d Chips"):format(self.n) end,
+})
+add("chips", "checkerboard", "Checkerboard", 4, "As many odd as even dice: +140 Chips",
+    when(function(c) return (c.faces[1] + c.faces[3] + c.faces[5]) * 2 == c.size end, { chips = 140 }))
+add("chips", "high_low", "High-Low", 4, "Score a 1 and a 6: +160 Chips",
+    when(function(c) return c.faces[1] > 0 and c.faces[6] > 0 end, { chips = 160 }))
+
+-- ===== mult =====
+add("mult", "red_alert", "Red Alert", 5, "+4 Mult per Ruby Die scored", per("mult", 4, ofType("ruby")))
+add("mult", "blacksmith", "Blacksmith", 5, "+4 Mult per Iron Die left unscored", per("mult", 4, function(c)
+    local n = 0
+    for _, d in ipairs(c.table or {}) do if d.type == "iron" then n = n + 1 end end
+    return n
+end))
+add("mult", "scholar", "Scholar", 5, "+1 Mult per combo upgrade", per("mult", 1, function(c) return c.upgrades or 0 end))
+add("mult", "pack_rat", "Pack Rat", 4, "+3 Mult per card held", per("mult", 3, cards))
+add("mult", "curator", "Curator", 5, "+2 Mult per kind of special die owned", per("mult", 2, function(c) return c.owned_kinds or 0 end))
+add("mult", "purist", "Purist", 5, "No special dice owned: +7 Mult", when(function(c) return (c.owned_special or 0) == 0 end, { mult = 7 }))
+add("mult", "warm_up", "Warm Up", 4, "First score of a round: +4 Mult", when(function(c) return c.score_index == 1 end, { mult = 4 }))
+add("mult", "slow_burn", "Slow Burn", 5, "Fourth score of a round or later: +14 Mult", when(function(c) return (c.score_index or 1) >= 4 end, { mult = 14 }))
+add("mult", "middle_child", "Middle Child", 4, "+1 Mult per 3 or 4 scored", per("mult", 1, function(c) return c.faces[3] + c.faces[4] end))
+add("mult", "tightrope", "Tightrope", 4, "1 or 2 dice left unscored: +6 Mult",
+    when(function(c) return c.dice_left == 1 or c.dice_left == 2 end, { mult = 6 }))
+add("mult", "broken_record", "Broken Record", 5, "Same combo as your last score: +6 Mult", function(c, self)
+    if sameCombo(self, c) then return { mult = 6 } end
+end, { after = function(self, c) self.last = c.entries[1] and c.entries[1].id end })
+add("mult", "comeback", "Comeback Kid", 5, "+10 Mult until you bank, after a Farkle", per("mult", 1, grown), {
+    on_farkle = function(self) self.n = 10 end, on_bank = function(self) self.n = 0 end,
+    info = function(self) return self.n > 0 and "Active" or "Waiting for a Farkle" end,
+})
+add("mult", "metronome", "Metronome", 5, "Every third score: +12 Mult", function(_, self)
+    if self.n % 3 == 2 then return { mult = 12 } end
+end, {
+    after = function(self) self.n = self.n + 1 end,
+    info = function(self) return self.n % 3 == 2 and "Next score!" or ("%d to go"):format(3 - self.n % 3) end,
+})
+add("mult", "librarian", "Librarian", 5, "Gains +2 Mult per combo card used", per("mult", 1, grown), {
+    on_consume = function(self, _, card) if card.kind == "combo" then self.n = self.n + 2 end end, info = showMult,
+})
+add("mult", "mystic", "Mystic", 5, "Gains +2 Mult per charm used", per("mult", 1, grown), {
+    on_consume = function(self, _, card) if card.kind == "charm" then self.n = self.n + 2 end end, info = showMult,
+})
+
+-- ===== x mult =====
+add("xmult", "chandelier", "Chandelier", 7, "x1.3 Mult per Crystal Die scored", function(c)
+    local n = c.types.crystal or 0
+    if n > 0 then return { xmult = 1.3 ^ n } end
+end)
+add("xmult", "prism", "Prism", 8, "3 kinds of special dice owned: x2 Mult", when(function(c) return (c.owned_kinds or 0) >= 3 end, { xmult = 2 }))
+add("xmult", "wild_side", "Wild Side", 7, "Wild Die scored: x1.75 Mult", when(function(c) return (c.types.wild or 0) > 0 end, { xmult = 1.75 }))
+add("xmult", "specialist", "Specialist", 8, "Combo of level 4+ scored: x2 Mult", when(function(c)
+    for _, e in ipairs(c.entries) do if c.combo_level and c.combo_level(e.id) >= 4 then return true end end
+end, { xmult = 2 }))
+add("xmult", "empty_hands", "Empty Hands", 6, "No cards held: x1.5 Mult", when(function(c) return cards(c) == 0 end, { xmult = 1.5 }))
+add("xmult", "tycoon", "Tycoon", 8, "$30 or more held: x2 Mult", when(function(c) return (c.money or 0) >= 30 end, { xmult = 2 }))
+add("xmult", "cliffhanger", "Cliffhanger", 7, "Last round of a floor: x2 Mult", when(function(c) return c.rounds_left == 1 end, { xmult = 2 }))
+add("xmult", "ritual", "Ritual", 7, "Gains x0.1 Mult per card used", grownX(0.1), {
+    on_consume = function(self) self.n = self.n + 1 end, info = showX(0.1),
+})
+add("xmult", "grand_slam", "Grand Slam", 8, "Gains x0.2 Mult per 6 dice scored at once", grownX(0.2), {
+    after = function(self, c) if c.size == 6 then self.n = self.n + 1 end end, info = showX(0.2),
+})
+
+-- ===== money =====
+add("money", "goldsmith", "Goldsmith", 5, "Gold Dice earn $1 more", per("money", 1, ofType("gold")))
+add("money", "toll_road", "Toll Road", 5, "Any straight: earn $2", when(straight, { money = 2 }))
+add("money", "scholarship", "Scholarship", 5, "Earn $1 per combo card used", nil, {
+    on_consume = function(_, player, card) if card.kind == "combo" then player:add_money(1) end end,
+})
+add("money", "museum", "Museum", 6, "+$1 per special die owned after each floor", nil, { payout = function(c) return (c.player:special_dice()) end })
+add("money", "tenure", "Tenure", 6, "+$1 per 3 combo upgrades after each floor (max $6)", nil, {
+    payout = function(c) return math.min(6, math.floor(c.player:total_upgrades() / 3)) end,
+})
+
+-- ===== utility =====
+add("utility", "extra_shelf", "Extra Shelf", 5, "+1 card slot", nil, { card_slots = 1 })
+add("utility", "coupon", "Coupon", 4, "Shop cards cost $1 less", nil, { card_discount = 1 })
+add("utility", "newsstand", "Newsstand", 5, "+1 card on sale in every shop", nil, { extra_cards = 1 })
+add("utility", "bubble_wrap", "Bubble Wrap", 5, "Crystal Dice never crack", nil, { no_crack = 1 })
+add("utility", "care_package", "Care Package", 6, "Floor cleared: get a random card", nil, {
+    on_floor = function(_, player) player:add_consumable(require("core.consumables").random()) end,
+})
+add("utility", "study_group", "Study Group", 6, "Floor cleared: upgrades a random combo", nil, {
+    on_floor = function(_, player)
+        local list = require("core.combos").LIST
+        player:upgrade_combo(list[math.random(#list)].id, math.random(2) == 1 and "chips" or "mult")
+    end,
+})
+add("utility", "dice_maker", "Dice Maker", 7, "Floor cleared: 1 in 2 to improve a plain die", nil, {
+    on_floor = function(_, player)
+        local plain = {}
+        for i, id in ipairs(player.dice) do if id == "plain" then plain[#plain + 1] = i end end
+        if #plain > 0 and math.random(2) == 1 then
+            player.dice[plain[math.random(#plain)]] = require("core.dice_types").random().id
+        end
+    end,
+})
 
 return Jokers

@@ -7,6 +7,7 @@ local Player       = require("core.player")
 local FloorManager = require("core.floor_manager")
 local Shop         = require("core.shop")
 local Settings     = require("core.settings")
+local DiceTypes    = require("core.dice_types")
 
 -- UI modules
 local Theme      = require("ui.theme")
@@ -18,6 +19,7 @@ local ScorePanel = require("ui.score_panel")
 local JokerBar   = require("ui.joker_bar")
 local JokerIcons = require("ui.joker_icons")
 local ComboHelp  = require("ui.combo_help")
+local ConsumableBar = require("ui.consumable_bar")
 local ShopScreen = require("ui.shop_screen")
 local CashoutScreen = require("ui.cashout_screen")
 local DiceBoard  = require("ui.dice_board")
@@ -52,12 +54,15 @@ local function resetDice()
     for _, d in ipairs(dice) do
         d.value, d.rolling, d.selected, d.kept = 1, 0, false, false
         d.dying = false
+        d.rescued = false
         d.x = nil
     end
 end
 
 local function newGame()
     player = Player.new({ money = START_MONEY })
+    ComboHelp.levels = player.levels
+    ConsumableBar.clear()
     fm = FloorManager.new(player)
     fm:start_next_floor()
     resetDice()
@@ -85,6 +90,13 @@ local function onScoreStep(step, index)
         Fx.text(cx, cy - 170, "+" .. Scoring.formatNumber(total), Theme.colors.gold, true)
         Fx.shake(punch)
         Fx.play("score", pitch)
+    elseif step.kind == "die" then
+        if step.money then player:add_money(step.money) end
+        local dx, dy = DiceBoard.popDie(dice, step.die, Theme.colors.gold, 18)
+        Fx.text(dx, dy - 130, step.text, Theme.colors.gold)
+        Fx.burst(R.mult.x, R.mult.y, Theme.colors.mult, 10, 280)
+        Fx.shake(0.14)
+        Fx.play("joker", pitch)
     elseif step.kind == "joker" then
         JokerBar.trigger(step.slot)
         if step.money then player:add_money(step.money) end
@@ -148,12 +160,36 @@ local function collect(filter)
     return vals
 end
 
-local function rollFree()
-    local free = {}
+-- Scored (or unscored) dice as the rules see them
+local function diceInfo(filter)
+    local list = {}
     for i, d in ipairs(dice) do
-        if not d.kept then table.insert(free, i) end
+        if filter(d) then list[#list + 1] = { index = i, value = d.value, type = player.dice[i] } end
     end
-    
+    return list
+end
+local function isSelected(d) return d.selected end
+local function isOnTable(d) return not d.kept and not d.dying and not d.selected end
+local function isFree(d) return not d.kept end
+
+-- Faces of those dice with the wild ones filled in; nil when a selection cannot be used
+local function resolved(list, all)
+    local values, wild = {}, {}
+    for n, d in ipairs(list) do
+        values[n], wild[n] = d.value, DiceTypes.get(d.type).wild
+    end
+    return Combos.resolve(values, wild, player.levels, all)
+end
+
+-- only = list of indexes (a charm rerolling some dice), default every free die
+local function rollFree(only)
+    local free = only or {}
+    if not only then
+        for i, d in ipairs(dice) do
+            if not d.kept then table.insert(free, i) end
+        end
+    end
+
     if #free == 0 then
         for i = 1, 6 do 
             table.insert(free, i)
@@ -163,18 +199,22 @@ local function rollFree()
         end
     end
 
-    local values = Farkle.rollDice(#free)
+    local values = {}
+    for i, d in ipairs(dice) do values[i] = d.value end
+    Farkle.rollDice(player.dice, values, free)
     for n, i in ipairs(free) do
-        dice[i].value = values[n]
+        dice[i].value = values[i]
         dice[i].rolling = ROLL_TIME + n * 0.1
         dice[i].selected = false
     end
+    for _, d in ipairs(dice) do d.selected = false end
     scorePanel:reset()
     state = "rolling"
     message = ""
 end
 
 local function openShop()
+    ConsumableBar.clear()
     shop = Shop.new(player)
     shopScreen = ShopScreen.new(shop, player, fm.lastReward)
     state, message = "shop", ""
@@ -210,7 +250,7 @@ local function resolveRound(result, points, farkled)
     if result == "playing" then
         if farkled then
             state = "farkled"
-            message = (points > 0 and ("Safety Net kept " .. points .. "!  ") or "") .. "Press SPACE for the next round"
+            message = (points > 0 and ("You keep " .. points .. "!  ") or "") .. "Press SPACE for the next round"
             FarkleAnim.trigger()
         else
             state, message = "ready", "Banked " .. points .. "! Press SPACE to roll"
@@ -237,7 +277,9 @@ end
 local function endRound(points, farkled)
     if farkled then
         player.stats.farkles = player.stats.farkles + 1
-        points = math.floor(roundScore * math.min(1, player:perk("farkle_keep")))   -- Safety Net
+        local keep = math.min(1, player:perk("farkle_keep"))                        -- Safety Net
+        if player.buffs.lifeline and roundScore > 0 then keep, player.buffs.lifeline = 1, nil end
+        points = math.floor(roundScore * keep)
         for _, joker in ipairs(player.jokers) do
             if joker.free_farkle and not joker.used then                            -- Second Wind
                 joker.used = true
@@ -267,11 +309,13 @@ local function endRound(points, farkled)
 end
 
 local function refreshPreview()
-    local vals = collect(function(d) return d.selected end)
-    if #vals == 0 then
+    local picked = diceInfo(isSelected)
+    local vals = resolved(picked, true)
+    if #picked == 0 then
         scorePanel:reset()
-    elseif Combos.isValidSelection(vals) then
-        scorePanel:preview(Scoring.compute(vals, {}))
+    elseif vals and Combos.isValidSelection(vals) then
+        scorePanel:preview(Scoring.compute(vals, {}, {
+            levels = player.levels, dice = picked, table = diceInfo(isOnTable), buffs = player.buffs }))
     else
         scorePanel:preview(nil, "Not a scoring combination")
     end
@@ -279,7 +323,13 @@ end
 
 -- Game state that jokers can look at (see core/jokers.lua)
 local function jokerContext()
+    local special, kinds = player:special_dice()
     return {
+        levels = player.levels, buffs = player.buffs,
+        dice = diceInfo(isSelected), table = diceInfo(isOnTable),
+        owned_special = special, owned_kinds = kinds,
+        upgrades = player:total_upgrades(), cards = #player.consumables,
+        combo_level = function(id) return player:combo_level(id) end,
         money = player.money, rounds_left = fm.rounds_left,
         round_index = fm.rounds_total - fm.rounds_left + 1,
         floor = fm.floor, boss = fm:is_boss(fm.floor), joker_count = #player.jokers,
@@ -291,14 +341,17 @@ local function jokerContext()
 end
 
 local function confirmSelection()
-    local vals = collect(function(d) return d.selected end)
-    if not Combos.isValidSelection(vals) then
+    local vals = resolved(diceInfo(isSelected), true)
+    if not vals or not Combos.isValidSelection(vals) then
         message = "Invalid selection: every selected die must be part of a combination"
         return
     end
     scoreIndex = scoreIndex + 1
     local result = Scoring.compute(vals, player.jokers, jokerContext())
+    player.buffs.chips, player.buffs.xmult = nil, nil      -- one-use charms are spent
+    for _, e in ipairs(result.entries) do player.plays[e.id] = (player.plays[e.id] or 0) + 1 end
     player:notify("after", result.ctx)          -- growing jokers
+    ConsumableBar.clear()
     pendingScore = result.total
     state, message = "scoring", ""
     scorePanel:start(result)
@@ -306,6 +359,7 @@ end
 
 -- Selling is off while jokers are being counted or the run is over
 local LOCKED = { scoring = true, snapping = true, banking = true, celebrating = true, won = true, lost = true }
+local CARDS_OK = { ready = true, selecting = true, decide = true, farkled = true, shop = true }
 
 local function sellJoker(slot)
     local y = JokerBar.lastY or 20
@@ -319,8 +373,78 @@ local function sellJoker(slot)
     Fx.play("coin")
 end
 
+local function notice(text)
+    if state == "shop" then shopScreen.notice = text else message = text end
+end
+
+-- What charms can see and change (see core/consumables.lua)
+local function charmGame()
+    return {
+        player = player, fm = fm,
+        playing = fm.state == "playing" and state ~= "shop",
+        picking = state == "selecting",
+        selected = diceInfo(isSelected),
+        set_faces = function(map)
+            local old = {}
+            for i, v in pairs(map) do old[i], dice[i].value = dice[i].value, v end
+            if Combos.canScore(resolved(diceInfo(isFree))) then
+                for i in pairs(map) do DiceBoard.popDie(dice, i, Theme.colors.gold, 20) end
+                return true
+            end
+            for i, v in pairs(old) do dice[i].value = v end
+            return false
+        end,
+        reroll = function(list)
+            local only = {}
+            for n, d in ipairs(list) do only[n] = d.index end
+            rollFree(only)
+        end,
+    }
+end
+
+local function useCard(slot, track)
+    if not CARDS_OK[state] then return end
+    local cx, cy = ConsumableBar.center(slot)
+    local ok, text = player:use_consumable(slot, charmGame(), track)
+    if not ok then
+        notice(text or "")
+        Fx.play("unpick")
+        return
+    end
+    ConsumableBar.clear()
+    Fx.burst(cx, cy, Theme.colors.gold, 34, 460)
+    Fx.ring(cx, cy, Theme.colors.gold, 160)
+    if text then Fx.text(cx, cy - 60, text, Theme.colors.gold, false) end
+    Fx.play("joker")
+    if state == "selecting" then refreshPreview() end
+end
+
+local function sellCard(slot)
+    local cx, cy = ConsumableBar.center(slot)
+    local value = player:sell_consumable(slot)
+    if not value then return end
+    ConsumableBar.clear()
+    Fx.burst(cx, cy, Theme.colors.gold, 24, 400)
+    Fx.text(cx, cy, "+$" .. value, Theme.colors.gold, true)
+    Fx.play("coin")
+end
+
+local function cardAction(action, slot, track)
+    if action == "use" then useCard(slot, track) elseif action == "sell" then sellCard(slot) end
+end
+
 local function finishScoring()
     roundScore = roundScore + pendingScore
+
+    -- crystal dice may crack
+    for i, d in ipairs(dice) do
+        local chance = d.selected and DiceTypes.get(player.dice[i]).fragile
+        if chance and player:perk("no_crack") == 0 and math.random() < chance then
+            player.dice[i] = "plain"
+            local cx, cy = DiceBoard.popDie(dice, i, { 0.7, 1, 1 }, 40)
+            Fx.text(cx, cy - 120, "CRACKED!", { 0.7, 1, 1 }, false)
+        end
+    end
     
     DiceBoard.snapDice(dice) -- Triggers the dust!
     
@@ -338,6 +462,8 @@ function love.update(dt)
 
     Fx.update(dt)
     JokerBar.locked = LOCKED[state] or false
+    ConsumableBar.locked = not CARDS_OK[state]
+    for i, d in ipairs(dice) do d.type = player.dice[i] end
     JokerBar.update(dt)
     DiceBoard.update(dt, dice, state == "selecting")
     FarkleAnim.update(dt)
@@ -419,8 +545,19 @@ function love.update(dt)
         end
     end
     if not stillRolling then
-        local free = collect(function(d) return not d.kept end)
+        local free = resolved(diceInfo(isFree))
         if not Combos.canScore(free) then
+            for i, d in ipairs(dice) do            -- a Phoenix die on the table saves one Farkle per floor
+                if not d.kept and not d.rescued and DiceTypes.get(player.dice[i]).rescue then
+                    d.rescued = true
+                    local cx, cy = DiceBoard.popDie(dice, i, Theme.colors.mult, 50)
+                    Fx.text(cx, cy - 140, "PHOENIX!", Theme.colors.gold, true)
+                    Fx.shake(0.4)
+                    Fx.play("score")
+                    rollFree()
+                    return
+                end
+            end
             endRound(0, true)
         else
             state = "selecting"
@@ -457,13 +594,19 @@ function love.draw()
     else
         JokerBar.draw(player, areaX, 20, areaW)
         DiceBoard.draw(dice, state == "selecting")
+        ConsumableBar.draw(player, areaX, 806, areaW)
 
         love.graphics.setFont(Theme.fonts.normal)
         Theme.color("text")
         Theme.printf(message, areaX, h - 90, areaW, "center")
     end
 
-    if state ~= "cashout" and state ~= "celebrating" then JokerBar.drawOverlay(player) end
+    if state ~= "cashout" and state ~= "celebrating" then
+        if state ~= "shop" then DiceBoard.drawTooltip(dice, state == "selecting") end
+        JokerBar.drawOverlay(player)
+        ConsumableBar.drawOverlay(player)
+        if state == "shop" then shopScreen:drawOverlay() end
+    end
     Celebration.draw()
 
     love.graphics.setFont(Theme.fonts.small)
@@ -494,6 +637,12 @@ function love.mousepressed(mx, my, button)
         return
     end
 
+    if state == "shop" and shopScreen:overlayPressed(mx, my) then return end
+
+    local what, cardSlot, track = ConsumableBar.mousepressed(player, mx, my)
+    cardAction(what, cardSlot, track)
+    if what then return end
+
     local action, slot = JokerBar.mousepressed(player, mx, my)
     if action == "sell" then sellJoker(slot) end
     if action then return end
@@ -506,8 +655,10 @@ function love.mousepressed(mx, my, button)
     if state == "selecting" then
         if DiceBoard.mousepressed(mx, my, dice) then
             refreshPreview()
+            return              -- keep the picked card: some charms need dice
         end
     end
+    ConsumableBar.clear()
 end
 
 function love.keypressed(key)
@@ -517,12 +668,18 @@ function love.keypressed(key)
         return
     end
     if Menu.visible then Menu.keypressed(key) return end
+    if state == "shop" and shopScreen:keypressed(key) then return end
     if key == "escape" then Menu.open("pause") return end
     if key == "h" then ComboHelp.toggle() return end
 
     if state == "celebrating" then
         if key == "space" or key == "return" then Celebration.skip() end
         return
+    end
+    if state ~= "cashout" then
+        local what, slot, track = ConsumableBar.keypressed(player, key)
+        cardAction(what, slot, track)
+        if what then return end
     end
     if state == "selecting" and DiceBoard.keypressed(key, dice) then
         refreshPreview()

@@ -25,6 +25,9 @@ local KIND = {
     xmult   = { 0.56, 0.36, 0.86 },
     money   = { 0.99, 0.65, 0.15 },
     utility = { 0.20, 0.70, 0.42 },
+    combo   = { 0.16, 0.36, 0.72 },
+    charm   = { 0.80, 0.34, 0.62 },
+    die     = { 0.22, 0.30, 0.42 },
 }
 local KIND_NAME = { chips = "Chips", mult = "Mult", xmult = "X Mult", money = "Money", utility = "Utility" }
 
@@ -59,6 +62,8 @@ local function slots(player, x, w)
 end
 
 function JokerBar.cardCenter(player, slot, x, y, w)
+    local r = rects[slot]                     -- where it was drawn last
+    if r then return r.x + r.w / 2, r.y + r.h / 2 end
     local _, cardW, startX = slots(player, x, w)
     return startX + (slot - 1) * (cardW + GAP) + cardW / 2, y + CARD_H / 2
 end
@@ -73,6 +78,7 @@ end
 -- showDesc = also write what the joker does (shop); otherwise it is in the tooltip
 function JokerBar.drawCard(joker, x, y, w, h, showDesc)
     local tileH = 112
+    local iconS = math.min(4, (w - 20) / 24)      -- narrow cards get a smaller icon
     Theme.box(x, y, w, h, "card")
     local c = KIND[joker.kind] or KIND.utility
     love.graphics.setColor(c[1], c[2], c[3], 1)
@@ -80,9 +86,9 @@ function JokerBar.drawCard(joker, x, y, w, h, showDesc)
     love.graphics.setColor(1, 1, 1, 0.16)                        -- light upper half, like the buttons
     love.graphics.rectangle("fill", x + 10, y + 10, w - 20, tileH / 2, 8, 8)
     love.graphics.setColor(0, 0, 0, 0.25)
-    JokerIcons.draw(joker.id, math.floor(x + w / 2) + 4, y + 10 + tileH / 2 + 5, 4)
+    JokerIcons.draw(joker.icon or joker.id, math.floor(x + w / 2) + 4, y + 10 + tileH / 2 + 5, iconS)
     love.graphics.setColor(1, 1, 1, 1)
-    JokerIcons.draw(joker.id, math.floor(x + w / 2), y + 10 + tileH / 2, 4)
+    JokerIcons.draw(joker.icon or joker.id, math.floor(x + w / 2), y + 10 + tileH / 2, iconS)
 
     love.graphics.setFont(Theme.fonts.small)
     Theme.color("ink")

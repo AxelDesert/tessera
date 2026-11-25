@@ -5,7 +5,7 @@ local Combos = require("core.combos")
 local Theme  = require("ui.theme")
 local Screen = require("ui.screen")
 
-local ComboHelp = { open = false }
+local ComboHelp = { open = false, levels = nil }   -- levels = player.levels, set by main
 
 function ComboHelp.toggle()
     ComboHelp.open = not ComboHelp.open
@@ -25,7 +25,8 @@ function ComboHelp.draw()
     Theme.panel(px, py, pw, ph)
 
     local colName, colDice = px + 24, px + pw * 0.30
-    local colChips, colMult = px + pw * 0.52, px + pw * 0.86
+    local colChips, colMult = px + pw * 0.50, px + pw * 0.83
+    local colLevel = px + pw * 0.92
 
     love.graphics.setFont(f.normal)
     Theme.color("gold")
@@ -38,24 +39,29 @@ function ComboHelp.draw()
     Theme.print("Example", colDice, y)
     Theme.print("Chips", colChips, y)
     Theme.print("Mult", colMult, y)
+    Theme.print("Lv", colLevel, y)
     y = y + 46
 
     for _, c in ipairs(Combos.LIST) do
-        Theme.color("text")
+        local lv = ComboHelp.levels and ComboHelp.levels[c.id] or { chips = 0, mult = 0 }
+        local level, plus = 1 + lv.chips + lv.mult, lv.chips * c.up.chips
+        local chips = c.chipsLabel and (c.chipsLabel .. (plus > 0 and " +" .. plus or "")) or tostring(c.chips + plus)
+        Theme.color(level > 1 and "gold" or "text")
+        Theme.print(tostring(level), colLevel, y)
         Theme.print(c.name, colName, y)
         Theme.color("dim")
         Theme.print(table.concat(c.example, " "), colDice, y)
         Theme.color("chips")
-        Theme.print("+" .. (c.chipsLabel or tostring(c.chips)), colChips, y)
+        Theme.print("+" .. chips, colChips, y)
         Theme.color("mult")
-        Theme.print("+" .. c.mult, colMult, y)
+        Theme.print("+" .. (c.mult + lv.mult * c.up.mult), colMult, y)
         y = y + rowH
     end
 
     Theme.color("dim")
     Theme.printf(
         "Score = Chips x Mult.  Mult starts at 1 and each combo adds its Mult.\n" ..
-        "Every selected die must be part of a combo.  Jokers trigger after the combos, left to right.",
+        "Every selected die must be part of a combo.  Special dice trigger next, then Jokers, left to right.",
         px + 20, y + 14, pw - 40, "center")
     Theme.printf("H / ESC / click to close", px, py + ph - 44, pw, "center")
 end
