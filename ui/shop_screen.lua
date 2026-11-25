@@ -14,39 +14,80 @@ local ConsumableBar = require("ui.consumable_bar")
 local ShopScreen = {}
 ShopScreen.__index = ShopScreen
 
-local CARD_W, CARD_H, GAP, BTN_H = 300, 236, 28, 52
+local CARD_W, CARD_H, GAP, BTN_H = 320, 344, 36, 60
+local TAB_W, TAB_H = 330, 72
+
+local TABS = {
+    joker = { label = "Jokers",       style = "button_red" },
+    die   = { label = "Special dice", style = "button" },
+    card  = { label = "Cards",        style = "chips" },
+}
+
+local lastTab = "joker"      -- remembered from shop to shop
 
 function ShopScreen.new(shop, player, reward)
     local self = setmetatable({}, ShopScreen)
     self.shop, self.player, self.reward = shop, player, reward
     self.notice = ""
+    self.tab = lastTab
     self.nextButton = Button.new("Next floor  [SPACE]", "button")
     self.rerollButton = Button.new("Reroll", "button_red")
-    self.buyButtons = {}
-    for i = 1, shop.offer_count do self.buyButtons[i] = Button.new("Buy", "button_orange") end
-    self.extraButtons = {}
-    for i = 1, shop.extra_count do self.extraButtons[i] = Button.new("Buy", "button_orange") end
+    self.tabButtons, self.buyButtons = {}, {}
+    for _, id in ipairs(shop.TABS) do
+        self.tabButtons[id] = Button.new(TABS[id].label, TABS[id].style)
+        self.buyButtons[id] = {}
+        for i = 1, shop.count[id] do self.buyButtons[id][i] = Button.new("Buy", "button_orange") end
+    end
     self.cancelButton = Button.new("Cancel  [ESC]", "button_red")
     self.placing = nil          -- index of the special die being placed
     return self
 end
 
--- One row of things for sale
-function ShopScreen:drawRow(items, buttons, n, x, y, w)
-    local shop, player = self.shop, self.player
+function ShopScreen:setTab(id)
+    if id == self.tab then return end
+    self.tab, lastTab, self.notice = id, id, ""
+    ConsumableBar.clear()
+    Fx.play("hover")
+end
+
+function ShopScreen:cycleTab(d)
+    local list = self.shop.TABS
+    for i, id in ipairs(list) do
+        if id == self.tab then return self:setTab(list[(i - 1 + d) % #list + 1]) end
+    end
+end
+
+function ShopScreen:drawTabs(x, y, w)
+    local list = self.shop.TABS
+    local tx = x + (w - #list * TAB_W - (#list - 1) * 12) / 2
+    for _, id in ipairs(list) do
+        local b, active = self.tabButtons[id], id == self.tab
+        b.style = active and TABS[id].style or "disabled"
+        b.label = ("%s  (%d)"):format(TABS[id].label, self.shop:left(id))
+        b:setRect(tx, active and y - 8 or y, TAB_W, TAB_H)
+        b:draw()
+        if active then
+            local ax, ay = tx + TAB_W / 2, y + TAB_H + 2
+            Theme.color("gold")
+            love.graphics.polygon("fill", ax - 16, ay, ax + 16, ay, ax, ay + 14)
+        end
+        tx = tx + TAB_W + 12
+    end
+end
+
+function ShopScreen:drawStock(x, y, w)
+    local shop, tab = self.shop, self.tab
+    local n = shop.count[tab]
     local cw = math.min(CARD_W, (w - (n - 1) * GAP) / n)
     local startX = x + (w - (n * cw + (n - 1) * GAP)) / 2
     for i = 1, n do
         local cx = startX + (i - 1) * (cw + GAP)
-        local item, btn = items[i], buttons[i]
+        local item, btn = shop.stock[tab][i], self.buyButtons[tab][i]
         if item then
-            local room = true
-            if item.kind == "combo" or item.kind == "charm" then room = player:has_consumable_room()
-            elseif item.kind ~= "die" then room = player:has_joker_room() end
             JokerBar.drawCard(item, cx, y, cw, CARD_H, true)
             btn.label = "Buy  $" .. shop:price(item)
-            btn.enabled = room and player:can_afford(shop:price(item))
-            btn:setRect(cx, y + CARD_H + 6, cw, BTN_H)
+            btn.enabled = shop:has_room(tab) and self.player:can_afford(shop:price(item))
+            btn:setRect(cx, y + CARD_H + 12, cw, BTN_H)
             btn:draw()
         else
             Theme.box(cx, y, cw, CARD_H, "inset")
@@ -70,31 +111,30 @@ function ShopScreen:draw(x, y, w)
     Theme.printf(("Floor cleared!  +$%d"):format(self.reward), x + w - 420, y + 6, 410, "right")
     for i = 1, 6 do DiceBoard.drawDie(player.dice[i], i, x + 40 + (i - 1) * 60, y + 24, 0, 0.25) end
 
-    local y1 = y + 54
-    local y2 = y1 + CARD_H + BTN_H + 16
-    self:drawRow(shop.offers, self.buyButtons, shop.offer_count, x, y1, w)
-    self:drawRow(shop.extras, self.extraButtons, shop.extra_count, x, y2, w)
+    self:drawTabs(x, y + 66, w)
+    local y1 = y + 166
+    self:drawStock(x, y1, w)
 
     -- reroll / next floor
-    local ry = y2 + CARD_H + BTN_H + 18
-    local rx = x + (w - 720) / 2
-    self.rerollButton.label = ("Reroll  $%d"):format(shop:reroll_cost())
+    local ry = y1 + CARD_H + BTN_H + 36
+    local rx = x + (w - 780) / 2
+    self.rerollButton.label = ("Reroll %s  $%d"):format(TABS[self.tab].label:lower(), shop:reroll_cost())
     self.rerollButton.enabled = player:can_afford(shop:reroll_cost())
-    self.rerollButton:setRect(rx, ry, 300, 62)
+    self.rerollButton:setRect(rx, ry, 390, 66)
     self.rerollButton:draw()
-    self.nextButton:setRect(rx + 330, ry, 390, 62)
+    self.nextButton:setRect(rx + 410, ry, 370, 66)
     self.nextButton:draw()
 
     -- what the player owns
-    local by = ry + 112
+    local by = 826
     love.graphics.setFont(f.small)
     if self.notice ~= "" then
         Theme.color("gold")
-        Theme.printf(self.notice, x, ry + 66, w, "center")
+        Theme.printf(self.notice, x, by - 44, w, "center")
     else
         Theme.color("dim")
-        Theme.printf("Your jokers  (click to sell)", x, ry + 66, w - 510, "center")
-        Theme.printf("Your cards  (click to use)", x + w - 490, ry + 66, 490, "center")
+        Theme.printf("Your jokers  (click to sell)", x, by - 44, w - 510, "center")
+        Theme.printf("Your cards  (click to use)", x + w - 490, by - 44, 490, "center")
     end
     JokerBar.draw(player, x, by, w - 510)
     ConsumableBar.draw(player, x + w - 490, by, 490)
@@ -104,7 +144,7 @@ end
 function ShopScreen:drawOverlay()
     if not self.placing then return end
     local f, player = Theme.fonts, self.player
-    local item = self.shop.extras[self.placing]
+    local item = self.shop.stock.die[self.placing]
     love.graphics.setColor(0, 0, 0, 0.75)
     Screen.fill()
     local w, h = 1240, 480
@@ -133,7 +173,7 @@ function ShopScreen:drawOverlay()
 end
 
 function ShopScreen:place(slot)
-    local ok, err = self.shop:buy_extra(self.placing, slot)
+    local ok, err = self.shop:buy("die", self.placing, slot)
     self.notice = ok and "" or err
     if ok then
         Fx.burst(Screen.W / 2 + Screen.SIDEBAR_W / 2, Screen.H / 2, Theme.colors.gold, 40, 520)
@@ -142,9 +182,13 @@ function ShopScreen:place(slot)
     self.placing = nil
 end
 
--- Returns true when the key was used by the die picker
+-- Returns true when the key was used: tabs (Q / E, arrows, TAB) or the die picker
 function ShopScreen:keypressed(key)
-    if not self.placing then return false end
+    if not self.placing then
+        if key == "tab" or key == "e" or key == "d" or key == "right" then self:cycleTab(1) return true end
+        if key == "q" or key == "a" or key == "left" then self:cycleTab(-1) return true end
+        return false
+    end
     local n = tonumber(key)
     if key == "escape" then self.placing = nil
     elseif n and n >= 1 and n <= 6 then self:place(n) end
@@ -165,37 +209,33 @@ end
 function ShopScreen:mousepressed(mx, my)
     if self.nextButton:hit(mx, my) then return "next" end
 
+    for id, b in pairs(self.tabButtons) do
+        if b:hit(mx, my) then self:setTab(id) return end
+    end
+
+    local shop, tab = self.shop, self.tab
     if self.rerollButton:hit(mx, my) then
-        local ok, err = self.shop:reroll()
+        local ok, err = shop:reroll(tab)
         self.notice = ok and "" or err
+        if ok then Fx.play("coin") end
         return
     end
 
-    local function bought(ok, err, btn)
-        self.notice = ok and "" or err
-        if ok then
-            Fx.burst(btn.x + btn.w / 2, btn.y, Theme.colors.gold, 24, 420)
-            Fx.play("coin")
-        end
-        return ok
-    end
-    for i, btn in ipairs(self.buyButtons) do
-        if btn:hit(mx, my) then
-            -- the new card pops into its slot
-            local ok, err = self.shop:buy(i)
-            if bought(ok, err, btn) then JokerBar.trigger(#self.player.jokers) end
-            return
-        end
-    end
-    for i, btn in ipairs(self.extraButtons) do
-        if btn:hit(mx, my) then
-            local item = self.shop.extras[i]
-            if item.kind == "die" then
-                if self.player:can_afford(self.shop:price(item)) then self.placing, self.notice = i, ""
-                else self.notice = "Not enough money" end
-            else
-                local ok, err = self.shop:buy_extra(i)
-                bought(ok, err, btn)
+    for i, btn in ipairs(self.buyButtons[tab]) do
+        local item = shop.stock[tab][i]
+        if item and btn:hit(mx, my) then
+            if tab == "die" then             -- choose which die to replace first
+                local rich = self.player:can_afford(shop:price(item))
+                self.notice = rich and "" or "Not enough money"
+                if rich then self.placing = i end
+                return
+            end
+            local ok, err = shop:buy(tab, i)
+            self.notice = ok and "" or err
+            if ok then
+                if tab == "joker" then JokerBar.trigger(#self.player.jokers) end   -- pops into its slot
+                Fx.burst(btn.x + btn.w / 2, btn.y, Theme.colors.gold, 24, 420)
+                Fx.play("coin")
             end
             return
         end

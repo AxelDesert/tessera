@@ -12,6 +12,8 @@ local Screen     = require("ui.screen")
 local Button     = require("ui.button")
 local JokerIcons = require("ui.joker_icons")
 local Fx         = require("ui.fx")
+local CardFrames = require("ui.card_frames")
+local DiceBoard  = require("ui.dice_board")
 
 local JokerBar = { locked = false }
 
@@ -75,27 +77,37 @@ local function fitted(text, cx, y, maxW)
     love.graphics.print(text, math.floor(cx - font:getWidth(text) * s / 2), math.floor(y + font:getHeight() * (1 - s) / 2), 0, s, s)
 end
 
--- showDesc = also write what the joker does (shop); otherwise it is in the tooltip
+-- Any card, with the body of its family (see card_frames.lua).
+-- showDesc = bigger, and also write what it does (shop); otherwise it is in the tooltip
 function JokerBar.drawCard(joker, x, y, w, h, showDesc)
-    local tileH = 112
-    local iconS = math.min(4, (w - 20) / 24)      -- narrow cards get a smaller icon
-    Theme.box(x, y, w, h, "card")
-    local c = KIND[joker.kind] or KIND.utility
-    love.graphics.setColor(c[1], c[2], c[3], 1)
-    love.graphics.rectangle("fill", x + 10, y + 10, w - 20, tileH, 8, 8)
-    love.graphics.setColor(1, 1, 1, 0.16)                        -- light upper half, like the buttons
-    love.graphics.rectangle("fill", x + 10, y + 10, w - 20, tileH / 2, 8, 8)
-    love.graphics.setColor(0, 0, 0, 0.25)
-    JokerIcons.draw(joker.icon or joker.id, math.floor(x + w / 2) + 4, y + 10 + tileH / 2 + 5, iconS)
-    love.graphics.setColor(1, 1, 1, 1)
-    JokerIcons.draw(joker.icon or joker.id, math.floor(x + w / 2), y + 10 + tileH / 2, iconS)
+    local kind = joker.kind
+    local style = (kind == "combo" or kind == "charm" or kind == "die") and kind or "joker"
+    local tileH = showDesc and 168 or 116
+    local top = 12                                                  -- rim above the picture
+    local iconS = math.min(showDesc and 5 or 4, (w - 28) / 24)      -- narrow cards get a smaller icon
+    local cx, cy = math.floor(x + w / 2), y + (top + tileH) / 2
+    CardFrames.draw(style, x, y, w, h, tileH, KIND[kind] or KIND.utility)
 
-    love.graphics.setFont(Theme.fonts.small)
-    Theme.color("ink")
-    fitted(joker.name, x + w / 2, y + 10 + tileH + 4, w - 24)
+    if style == "die" then
+        local s = (tileH - 46) / 188
+        love.graphics.setColor(0, 0, 0, 0.35)
+        love.graphics.ellipse("fill", cx, cy + 94 * s + 4, 84 * s, 12 * s)
+        DiceBoard.drawDie(joker.id, 5, cx, cy, 0, s)
+    else
+        love.graphics.setColor(0, 0, 0, 0.25)
+        JokerIcons.draw(joker.icon or joker.id, cx + 4, cy + 5, iconS)
+        love.graphics.setColor(1, 1, 1, 1)
+        JokerIcons.draw(joker.icon or joker.id, cx, cy, iconS)
+    end
+
+    local text = CardFrames.TEXT[style]
+    love.graphics.setFont(showDesc and Theme.fonts.normal or Theme.fonts.small)
+    love.graphics.setColor(text[1])
+    fitted(joker.name, x + w / 2, y + tileH + (showDesc and 8 or 4), w - 36)
     if showDesc then
-        love.graphics.setColor(0.45, 0.52, 0.58, 1)
-        love.graphics.printf(joker.desc, x + 12, y + 10 + tileH + 40, w - 24, "center")
+        love.graphics.setFont(Theme.fonts.small)
+        love.graphics.setColor(text[2])
+        love.graphics.printf(joker.desc, x + 22, y + tileH + 56, w - 44, "center")
     end
 end
 
