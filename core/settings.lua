@@ -6,6 +6,7 @@
 --   Settings.data.shake         bool (screen shake on a Farkle and when scoring)
 --   Settings.data.float         bool (dice gently bob and sway)
 --   Settings.data.hints         bool (glow on dice that can score)
+--   Settings.data.background    1..4 (see ui/background.lua)
 --   Settings.data.best_floors   most floors cleared in one run
 --   Settings.data.escapes       runs that escaped the casino
 --   Settings.data.runs          finished runs (won or lost)
@@ -14,10 +15,10 @@ local Settings = {}
 
 local FILE = "settings.cfg"
 local DEFAULTS = {
-    music = 0.6, sfx = 0.7, fullscreen = false, shake = true, float = true, hints = true,
+    music = 0.6, sfx = 0.7, fullscreen = false, shake = true, float = true, hints = true, background = 2,
     best_floors = 0, escapes = 0, runs = 0,
 }
-local ORDER = { "music", "sfx", "fullscreen", "shake", "float", "hints", "best_floors", "escapes", "runs" }
+local ORDER = { "music", "sfx", "fullscreen", "shake", "float", "hints", "background", "best_floors", "escapes", "runs" }
 
 Settings.data = {}
 for k, v in pairs(DEFAULTS) do Settings.data[k] = v end
@@ -39,6 +40,8 @@ function Settings.load()
             end
         end
     end
+    local b = Settings.data.background
+    if b ~= math.floor(b) or b < 1 or b > 4 then Settings.data.background = DEFAULTS.background end
     Settings.data.music = math.max(0, math.min(1, Settings.data.music))
     Settings.data.sfx   = math.max(0, math.min(1, Settings.data.sfx))
 end

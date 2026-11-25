@@ -11,6 +11,7 @@ local Settings     = require("core.settings")
 -- UI modules
 local Theme      = require("ui.theme")
 local Screen     = require("ui.screen")
+local Background = require("ui.background")
 local Button     = require("ui.button")
 local HUD        = require("ui.hud")
 local ScorePanel = require("ui.score_panel")
@@ -30,7 +31,7 @@ local START_MONEY = 4   -- like Balatro
 local SIDEBAR_W = Screen.SIDEBAR_W
 local AREA_X, AREA_W = SIDEBAR_W + 20, Screen.W - SIDEBAR_W - 40   -- play area right of the sidebar
 
-local dice, bg, source
+local dice, source
 local state = "ready" -- ready | rolling | selecting | scoring | snapping | decide | banking | celebrating
                       -- | farkled | cashout | shop | won | lost
 local roundScore, message = 0, "Press SPACE to roll"
@@ -114,7 +115,7 @@ function love.load()
     Theme.load()
     JokerIcons.load()
     
-    bg = love.graphics.newImage("assets/wallpaper.png")
+    Background.load()
     DiceBoard.load()
     FarkleAnim.load()
     Fx.load()
@@ -130,7 +131,7 @@ function love.load()
     newGame()
 
     -- title screen / pause menu (see ui/menu.lua)
-    Menu.load({ bg = bg, music = source })
+    Menu.load({ music = source })
     Menu.onPlay   = newGame
     Menu.onCombos = function() ComboHelp.open = true end
     Menu.overlayOpen = function() return ComboHelp.open end
@@ -440,10 +441,7 @@ function love.draw()
     local w, h = Screen.W, Screen.H
     local areaX, areaW = AREA_X, AREA_W
 
-    love.graphics.setColor(1, 1, 1)
-    local bw, bh = bg:getDimensions()
-    local cover = math.max((Screen.right - Screen.left) / bw, (Screen.bottom - Screen.top) / bh)
-    love.graphics.draw(bg, w / 2, h / 2, 0, cover, cover, bw / 2, bh / 2)
+    Background.draw()
 
     -- everything on the table shakes together (Options > Screen shake)
     love.graphics.push()

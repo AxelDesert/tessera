@@ -1,6 +1,6 @@
 -- Title screen + pause menu.
 --
---   Menu.load{ bg = <wallpaper Image>, music = <music Source> }   once, in love.load
+--   Menu.load{ music = <music Source> }   once, in love.load
 --   Menu.update(dt) / Menu.draw()                                 every frame (always call both)
 --   Menu.mousepressed(x, y, button) / Menu.keypressed(key)        return true when the event was used
 --   Menu.open("main" | "pause") / Menu.close()
@@ -20,6 +20,7 @@ local Theme    = require("ui.theme")
 local Screen   = require("ui.screen")
 local Settings = require("core.settings")
 local Fx       = require("ui.fx")
+local Background = require("ui.background")
 
 local Menu = { visible = true, mode = "main" }
 
@@ -50,7 +51,7 @@ end
 ---------------------------------------------------------------------------
 -- state
 ---------------------------------------------------------------------------
-local bg, diceImg, quads, vignette, titleFont, music
+local diceImg, quads, vignette, titleFont, music
 local bgDice, heroes = {}, {}
 local sfx = {}
 local time, introT, screenT = 0, 0, 0
@@ -129,14 +130,8 @@ local function drawBackground()
     local mx, my = Screen.mouse()
     local px, py = clamp((mx - W / 2) / W, -0.5, 0.5), clamp((my - H / 2) / H, -0.5, 0.5)
 
-    -- wallpaper: oversized so rotation and drift never reveal the edges
-    local iw, ih = bg:getDimensions()
     local vw, vh = Screen.right - Screen.left, Screen.bottom - Screen.top
-    local k = math.max(vw / iw, vh / ih) * 1.25 * (1 + math.sin(time * 0.2) * 0.03)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(bg,
-        W / 2 - px * 30 + math.sin(time * 0.13) * 40, H / 2 - py * 20 + math.cos(time * 0.11) * 25,
-        math.sin(time * 0.09) * 0.07, k, k, iw / 2, ih / 2)
+    Background.draw(px * 30, py * 20, true)
 
     love.graphics.setColor(0, 0, 0, 0.18)
     Screen.fill()
@@ -333,10 +328,28 @@ local function drawToggle(it, selected)
         by + (bh - Theme.fonts.small:getHeight()) / 2, bw - 16 - kw, "center")
 end
 
+-- <  Name  >   click or left / right to change
+local function drawChoice(it, selected)
+    local r = it.rect
+    drawRowBackdrop(r, selected)
+    drawRowLabel(it, r)
+    local bw, bh = 460, 56
+    local bx, by = r.x + r.w - bw - 20, r.y + r.h / 2 - bh / 2
+    Theme.box(bx, by, bw, bh, "inset")
+    love.graphics.setFont(Theme.fonts.normal)
+    local ty = by + (bh - Theme.fonts.normal:getHeight()) / 2
+    Theme.color("gold")
+    Theme.print("<", bx + 18, ty)
+    Theme.printf(">", bx, ty, bw - 18, "right")
+    Theme.color("text")
+    Theme.printf(it.names[it.get()], bx, ty, bw, "center")
+end
+
 local function drawItems(items)
     for i, it in ipairs(items) do
         if it.kind == "button" then drawButton(it, i == sel)
         elseif it.kind == "slider" then drawSlider(it, i == sel)
+        elseif it.kind == "choice" then drawChoice(it, i == sel)
         else drawToggle(it, i == sel) end
     end
 end
@@ -392,6 +405,10 @@ local function slider(label, key)
              set = function(v) Settings.data[key] = clamp(v, 0, 1) end }
 end
 local function toggle(label, get, set) return { kind = "toggle", label = label, get = get, set = set } end
+
+local function choice(label, names, get, set)
+    return { kind = "choice", label = label, names = names, get = get, set = set }
+end
 
 local function stack(items, x, y0, w, h, gap)
     for i, it in ipairs(items) do it.rect = { x = x, y = y0 + (i - 1) * (h + gap), w = w, h = h } end
@@ -467,6 +484,8 @@ local function buildScreens()
                               function(v) Settings.data.float = v end),
         toggle("Highlight scoring dice", function() return Settings.data.hints end,
                                          function(v) Settings.data.hints = v end),
+        choice("Background", Background.LIST, function() return Settings.data.background end,
+                                              function(v) Settings.data.background = v end),
         button("Back", "button", function() Settings.save(); back(Menu.mode) end),
     }
     local OW, ROW, ROWGAP = 1180, 80, 12
@@ -589,7 +608,7 @@ end
 -- public API
 ---------------------------------------------------------------------------
 function Menu.load(opts)
-    bg, music = opts.bg, opts.music
+    music = opts.music
     diceImg = love.graphics.newImage("assets/dice.png")
     quads = {}
     for i = 0, 5 do
@@ -637,10 +656,18 @@ local function introLocked()
     return false
 end
 
+local function cycle(it, d)
+    play("select")
+    it.set((it.get() - 1 + d) % #it.names + 1)
+    Settings.save()
+end
+
 local function activate(it)
     if it.kind == "button" then
         play(it.label == "Back" and "back" or "select")
         it.act()
+    elseif it.kind == "choice" then
+        cycle(it, 1)
     elseif it.kind == "toggle" then
         play("select")
         it.set(not it.get())
@@ -745,6 +772,8 @@ function Menu.mousepressed(mx, my, button)
                     setSliderFromMouse(it, mx)
                     play("tick")
                 end
+            elseif it.kind == "choice" then
+                cycle(it, mx < it.rect.x + it.rect.w - 250 and mx > it.rect.x + it.rect.w - 480 and -1 or 1)   -- left half: previous
             else
                 activate(it)
             end
@@ -770,12 +799,14 @@ function Menu.keypressed(key)
     elseif key == "left" or key == "a" then
         if it.kind == "slider" then
             it.set(it.get() - 0.1); play("tick"); Settings.save()
+        elseif it.kind == "choice" then cycle(it, -1)
         elseif it.kind == "toggle" then
             if it.get() then activate(it) end
         elseif current.horizontal then move(-1) end
     elseif key == "right" or key == "d" then
         if it.kind == "slider" then
             it.set(it.get() + 0.1); play("tick"); Settings.save()
+        elseif it.kind == "choice" then cycle(it, 1)
         elseif it.kind == "toggle" then
             if not it.get() then activate(it) end
         elseif current.horizontal then move(1) end
