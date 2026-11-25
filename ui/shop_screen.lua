@@ -5,11 +5,12 @@
 local Theme    = require("ui.theme")
 local Button   = require("ui.button")
 local JokerBar = require("ui.joker_bar")
+local Fx       = require("ui.fx")
 
 local ShopScreen = {}
 ShopScreen.__index = ShopScreen
 
-local CARD_W, CARD_H, GAP = 300, 190, 36
+local CARD_W, CARD_H, GAP = 300, 260, 36
 
 function ShopScreen.new(shop, player, reward)
     local self = setmetatable({}, ShopScreen)
@@ -18,7 +19,7 @@ function ShopScreen.new(shop, player, reward)
     self.nextButton = Button.new("Next floor  [SPACE]", "button")
     self.rerollButton = Button.new("Reroll", "button_red")
     self.buyButtons = {}
-    for i = 1, shop.cfg.offers do self.buyButtons[i] = Button.new("Buy", "button_orange") end
+    for i = 1, shop.offer_count do self.buyButtons[i] = Button.new("Buy", "button_orange") end
     return self
 end
 
@@ -34,16 +35,16 @@ function ShopScreen:draw(x, y, w)
     Theme.printf(("Floor cleared!  +$%d"):format(self.reward), x, y + 76, w, "center")
 
     -- offers
-    local n = shop.cfg.offers
+    local n = shop.offer_count
     local startX = x + (w - (n * CARD_W + (n - 1) * GAP)) / 2
-    local cy = y + 150
+    local cy = y + 130
     for i = 1, n do
         local cx = startX + (i - 1) * (CARD_W + GAP)
         local joker, btn = shop.offers[i], self.buyButtons[i]
         if joker then
-            JokerBar.drawCard(joker, cx, cy, CARD_W, CARD_H)
-            btn.label = "Buy  $" .. joker.price
-            btn.enabled = player:can_afford(joker.price) and player:has_joker_room()
+            JokerBar.drawCard(joker, cx, cy, CARD_W, CARD_H, true)
+            btn.label = "Buy  $" .. shop:price(joker)
+            btn.enabled = player:can_afford(shop:price(joker)) and player:has_joker_room()
             btn:setRect(cx, cy + CARD_H + 14, CARD_W, 64)
             btn:draw()
         else
@@ -56,10 +57,10 @@ function ShopScreen:draw(x, y, w)
     end
 
     -- reroll / next floor
-    local ry = cy + CARD_H + 110
+    local ry = cy + CARD_H + 100
     local rx = x + (w - 720) / 2
-    self.rerollButton.label = ("Reroll  $%d"):format(shop.cfg.reroll_cost)
-    self.rerollButton.enabled = player:can_afford(shop.cfg.reroll_cost)
+    self.rerollButton.label = ("Reroll  $%d"):format(shop:reroll_cost())
+    self.rerollButton.enabled = player:can_afford(shop:reroll_cost())
     self.rerollButton:setRect(rx, ry, 300, 68)
     self.rerollButton:draw()
     self.nextButton:setRect(rx + 330, ry, 390, 68)
@@ -67,13 +68,13 @@ function ShopScreen:draw(x, y, w)
 
     love.graphics.setFont(f.small)
     Theme.color("bad")
-    Theme.printf(self.notice, x, ry + 80, w, "center")
+    Theme.printf(self.notice, x, ry + 70, w, "center")
 
     -- jokers the player already owns
     love.graphics.setFont(f.small)
     Theme.color("dim")
-    Theme.printf("Your jokers", x, ry + 128, w, "center")
-    JokerBar.draw(player, x, ry + 170, w)
+    Theme.printf("Your jokers  (click one to sell it)", x, ry + 106, w, "center")
+    JokerBar.draw(player, x, ry + 156, w)
 end
 
 -- Returns "next" when the player wants to leave the shop
@@ -90,6 +91,11 @@ function ShopScreen:mousepressed(mx, my)
         if btn:hit(mx, my) then
             local ok, err = self.shop:buy(i)
             self.notice = ok and "" or err
+            if ok then
+                JokerBar.trigger(#self.player.jokers)      -- the new card pops into its slot
+                Fx.burst(btn.x + btn.w / 2, btn.y, Theme.colors.gold, 24, 420)
+                Fx.play("coin")
+            end
             return
         end
     end

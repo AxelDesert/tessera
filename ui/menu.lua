@@ -494,7 +494,7 @@ local function buildScreens()
         { "Chips x Mult", "Each combo adds Chips and Mult. Your score is Chips x Mult, so stacking Mult pays off. Press H any time to see every combo." },
         { "Push or bank", "After scoring, press R to roll the dice you have left, or B to bank your points. Use all six dice and you get six fresh ones: HOT DICE!" },
         { "Farkle!",      "If a roll has nothing that scores, you FARKLE and lose everything you built up in that round. Greed is expensive." },
-        { "Shop",         "Clearing a floor pays out cash, with interest on your savings. Spend it on Jokers that bend the rules. Every 5th floor is a boss with one round less." },
+        { "Shop",         "Clearing a floor pays out cash, with interest on your savings. Spend it on Jokers that bend the rules, and click a Joker to sell it. Every 5th floor is a boss with one round less." },
     }
     local howto = {}
     howto.items = {

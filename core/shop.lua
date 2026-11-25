@@ -15,6 +15,7 @@ function Shop.new(player, config)
     local self = setmetatable({}, Shop)
     self.player = player
     self.cfg = setmetatable(config or {}, { __index = Shop.CONFIG })
+    self.offer_count = self.cfg.offers + player:perk("extra_offers")
     self.offers = {}    -- joker definition, or false once sold
     self:restock()
     return self
@@ -31,9 +32,18 @@ function Shop:restock()
         pool[i], pool[k] = pool[k], pool[i]
     end
     self.offers = {}
-    for i = 1, math.min(self.cfg.offers, #pool) do
+    for i = 1, math.min(self.offer_count, #pool) do
         self.offers[i] = pool[i]
     end
+end
+
+-- Prices after joker perks
+function Shop:price(joker)
+    return math.max(1, joker.price - self.player:perk("discount"))
+end
+
+function Shop:reroll_cost()
+    return math.max(0, self.cfg.reroll_cost - self.player:perk("reroll_discount"))
 end
 
 -- Returns true, or false + a reason
@@ -41,14 +51,16 @@ function Shop:buy(index)
     local joker = self.offers[index]
     if not joker then return false, "Already sold" end
     if not self.player:has_joker_room() then return false, "No free joker slot" end
-    if not self.player:spend_money(joker.price) then return false, "Not enough money" end
-    self.player:add_joker(joker)
+    local cost = self:price(joker)
+    if not self.player:spend_money(cost) then return false, "Not enough money" end
+    self.player:add_joker(joker).paid = cost
     self.offers[index] = false
     return true
 end
 
 function Shop:reroll()
-    if not self.player:spend_money(self.cfg.reroll_cost) then return false, "Not enough money" end
+    if not self.player:spend_money(self:reroll_cost()) then return false, "Not enough money" end
+    self.player.stats.rerolls = self.player.stats.rerolls + 1
     self:restock()
     return true
 end

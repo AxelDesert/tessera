@@ -191,11 +191,11 @@ function HUD.draw(fm, player, roundScore, x, y, w)
     end)
 
     -- floor / round
-    local round = math.min(fm:get_rounds(fm.floor), fm:get_rounds(fm.floor) - fm.rounds_left + 1)
+    local round = math.min(fm.rounds_total, fm.rounds_total - fm.rounds_left + 1)
     cx, cy, mw = statBox("Floor", x + Z(242), y + Z(1176) + s, Z(170), Z(128), k)
     fraction(tostring(fm.floor), tostring(fm.cfg.total_floors), "orange", cx, cy, mw)
     cx, cy, mw = statBox("Round", x + Z(428), y + Z(1176) + s, Z(170), Z(128), k)
-    fraction(tostring(round), tostring(fm:get_rounds(fm.floor)), "orange", cx, cy, mw)
+    fraction(tostring(round), tostring(fm.rounds_total), "orange", cx, cy, mw)
 
     -- buttons
     HUD.comboButton:setRect(x + Z(36), y + Z(866) + s, Z(176), Z(202))

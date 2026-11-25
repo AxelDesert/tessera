@@ -76,13 +76,14 @@ function FloorManager:compute_payout()
     add(("%d round%s left  ($%d each)"):format(self.rounds_left, self.rounds_left == 1 and "" or "s", c.reward_per_round),
         self.rounds_left * c.reward_per_round, "rounds")
 
-    local interest = math.min(c.interest_cap, math.floor(p.money / c.interest_per) * c.interest_amount)
-    add(("Interest  ($%d per $%d, max $%d)"):format(c.interest_amount, c.interest_per, c.interest_cap), interest, "interest")
+    local cap = c.interest_cap + p:perk("interest_cap")
+    local interest = math.min(cap, math.floor(p.money / c.interest_per) * c.interest_amount)
+    add(("Interest  ($%d per $%d, max $%d)"):format(c.interest_amount, c.interest_per, cap), interest, "interest")
 
     local ctx = { player = p, fm = self, floor = self.floor, boss = boss,
                   rounds_left = self.rounds_left, interest = interest }
     for _, joker in ipairs(p.jokers) do
-        if joker.payout then add(joker.name, joker.payout(ctx), "joker") end
+        if joker.payout then add(joker.name, joker.payout(ctx, joker), "joker") end
     end
     return { lines = lines, total = total }
 end
@@ -101,7 +102,8 @@ function FloorManager:start_next_floor()
     end
     self.floor       = self.floor + 1
     self.target      = self:get_target(self.floor)
-    self.rounds_left  = self:get_rounds(self.floor)
+    self.rounds_left  = self:get_rounds(self.floor) + self.player:perk("extra_rounds")
+    self.rounds_total = self.rounds_left      -- fixed for the floor, even if jokers are sold
     self.score       = 0
     self.state       = "playing"
     return true
@@ -128,6 +130,7 @@ function FloorManager:_clear_floor()
     self.lastPayout = self:compute_payout()
     self.lastReward = self.lastPayout.total
     self.payoutCollected = false
+    self.player:notify("on_floor", self.player)
     self.player.floors_cleared = self.player.floors_cleared + 1
 
     if self.floor >= self.cfg.total_floors then

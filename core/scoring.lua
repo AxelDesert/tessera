@@ -19,11 +19,12 @@ function Scoring.formatNumber(n)
 end
 local fmt = Scoring.formatNumber
 
-local function describe(dChips, dMult, xMult)
+local function describe(dChips, dMult, xMult, money)
     local parts = {}
     if dChips and dChips ~= 0 then parts[#parts + 1] = "+" .. fmt(dChips) .. " chips" end
     if dMult  and dMult  ~= 0 then parts[#parts + 1] = "+" .. fmt(dMult) .. " mult" end
     if xMult then                  parts[#parts + 1] = "x" .. fmt(xMult) .. " mult" end
+    if money then                  parts[#parts + 1] = "+$" .. money end
     return table.concat(parts, "   ")
 end
 
@@ -62,14 +63,17 @@ function Scoring.compute(values, jokers, extra)
     end
 
     local ctx = buildContext(values, entries, extra)
+    ctx.jokers = jokers
     for slot, joker in ipairs(jokers or {}) do
-        local fx = joker.effect and joker.effect(ctx)   -- payout-only jokers have no effect
+        ctx.slot = slot
+        local fx = joker.effect and joker.effect(ctx, joker)   -- payout-only jokers have no effect
         if fx then
             chips = chips + (fx.chips or 0)
             mult  = mult + (fx.mult or 0)
             if fx.xmult then mult = mult * fx.xmult end
             steps[#steps + 1] = {
-                kind = "joker", label = joker.name, text = describe(fx.chips, fx.mult, fx.xmult),
+                kind = "joker", label = joker.name, text = describe(fx.chips, fx.mult, fx.xmult, fx.money),
+                money = fx.money,
                 slot = slot,   -- position in the joker bar, so the UI can animate that card
                 chips = chips, mult = mult,
             }
@@ -83,6 +87,7 @@ function Scoring.compute(values, jokers, extra)
         steps   = steps,
         name    = table.concat(names, " + "),
         entries = entries,
+        ctx     = ctx,       -- for the jokers' after() hook
     }
 end
 

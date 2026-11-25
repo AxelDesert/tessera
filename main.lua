@@ -15,6 +15,7 @@ local Button     = require("ui.button")
 local HUD        = require("ui.hud")
 local ScorePanel = require("ui.score_panel")
 local JokerBar   = require("ui.joker_bar")
+local JokerIcons = require("ui.joker_icons")
 local ComboHelp  = require("ui.combo_help")
 local ShopScreen = require("ui.shop_screen")
 local CashoutScreen = require("ui.cashout_screen")
@@ -34,6 +35,7 @@ local state = "ready" -- ready | rolling | selecting | scoring | snapping | deci
                       -- | farkled | cashout | shop | won | lost
 local roundScore, message = 0, "Press SPACE to roll"
 local pendingScore = 0
+local scoreIndex = 0        -- scores made this round, for jokers
 local snapTimer = 0
 
 -- numbers shown in the sidebar count up/down to the real values (see HUD.counters)
@@ -59,7 +61,8 @@ local function newGame()
     fm:start_next_floor()
     resetDice()
     scorePanel:reset()
-    roundScore = 0
+    roundScore, scoreIndex = 0, 0
+    JokerBar.clear()
     state = "ready"
     message = "Press SPACE to roll"
     scoreC:snap(0); roundC:snap(0); moneyC:snap(player.money)
@@ -83,6 +86,7 @@ local function onScoreStep(step, index)
         Fx.play("score", pitch)
     elseif step.kind == "joker" then
         JokerBar.trigger(step.slot)
+        if step.money then player:add_money(step.money) end
         local jx, jy = JokerBar.cardCenter(player, step.slot, AREA_X, 20, AREA_W)
         Fx.burst(jx, jy, Theme.colors.gold, 26, 420)
         Fx.text(jx, jy + JokerBar.HEIGHT / 2 + 70, step.text, Theme.colors.gold, false, 15)
@@ -108,6 +112,7 @@ function love.load()
     Settings.load()
     Settings.applyWindow()
     Theme.load()
+    JokerIcons.load()
     
     bg = love.graphics.newImage("assets/wallpaper.png")
     DiceBoard.load()
@@ -203,7 +208,8 @@ end
 local function resolveRound(result, points, farkled)
     if result == "playing" then
         if farkled then
-            state, message = "farkled", "Press SPACE for the next round"
+            state = "farkled"
+            message = (points > 0 and ("Safety Net kept " .. points .. "!  ") or "") .. "Press SPACE for the next round"
             FarkleAnim.trigger()
         else
             state, message = "ready", "Banked " .. points .. "! Press SPACE to roll"
@@ -228,6 +234,21 @@ local function resolveRound(result, points, farkled)
 end
 
 local function endRound(points, farkled)
+    if farkled then
+        player.stats.farkles = player.stats.farkles + 1
+        points = math.floor(roundScore * math.min(1, player:perk("farkle_keep")))   -- Safety Net
+        for _, joker in ipairs(player.jokers) do
+            if joker.free_farkle and not joker.used then                            -- Second Wind
+                joker.used = true
+                fm.rounds_left = fm.rounds_left + 1
+            end
+        end
+        player:notify("on_farkle", player)
+    elseif points > 0 then
+        player:notify("on_bank", player)
+    end
+    player:notify("on_round", player)
+
     local result = fm:submit_round(points)
     roundScore = 0
     scorePanel:reset()
@@ -259,8 +280,12 @@ end
 local function jokerContext()
     return {
         money = player.money, rounds_left = fm.rounds_left,
-        round_index = fm:get_rounds(fm.floor) - fm.rounds_left + 1,
+        round_index = fm.rounds_total - fm.rounds_left + 1,
         floor = fm.floor, boss = fm:is_boss(fm.floor), joker_count = #player.jokers,
+        max_jokers = player.max_jokers, stats = player.stats,
+        score_index = scoreIndex, round_score = roundScore,
+        floor_score = fm.score, target = fm.target,
+        dice_left = #collect(function(d) return not d.kept and not d.selected end),
     }
 end
 
@@ -270,10 +295,27 @@ local function confirmSelection()
         message = "Invalid selection: every selected die must be part of a combination"
         return
     end
+    scoreIndex = scoreIndex + 1
     local result = Scoring.compute(vals, player.jokers, jokerContext())
+    player:notify("after", result.ctx)          -- growing jokers
     pendingScore = result.total
     state, message = "scoring", ""
     scorePanel:start(result)
+end
+
+-- Selling is off while jokers are being counted or the run is over
+local LOCKED = { scoring = true, snapping = true, banking = true, celebrating = true, won = true, lost = true }
+
+local function sellJoker(slot)
+    local y = JokerBar.lastY or 20
+    local jx, jy = JokerBar.cardCenter(player, slot, AREA_X, y, AREA_W)
+    local value = player:sell_joker(slot)
+    if not value then return end
+    JokerBar.clear()
+    Fx.burst(jx, jy, Theme.colors.gold, 34, 460)
+    Fx.ring(jx, jy, Theme.colors.gold, 160)
+    Fx.text(jx, jy, "+$" .. value, Theme.colors.gold, true)
+    Fx.play("coin")
 end
 
 local function finishScoring()
@@ -294,6 +336,7 @@ function love.update(dt)
     if Menu.visible then return end   -- title screen / pause: the game is frozen
 
     Fx.update(dt)
+    JokerBar.locked = LOCKED[state] or false
     JokerBar.update(dt)
     DiceBoard.update(dt, dice, state == "selecting")
     FarkleAnim.update(dt)
@@ -422,6 +465,7 @@ function love.draw()
         Theme.printf(message, areaX, h - 90, areaW, "center")
     end
 
+    if state ~= "cashout" and state ~= "celebrating" then JokerBar.drawOverlay(player) end
     Celebration.draw()
 
     love.graphics.setFont(Theme.fonts.small)
@@ -451,6 +495,10 @@ function love.mousepressed(mx, my, button)
         if cashoutScreen:mousepressed(mx, my) == "next" then leaveCashout() end
         return
     end
+
+    local action, slot = JokerBar.mousepressed(player, mx, my)
+    if action == "sell" then sellJoker(slot) end
+    if action then return end
 
     if state == "shop" then
         if shopScreen:mousepressed(mx, my) == "next" then leaveShop() end
@@ -489,7 +537,7 @@ function love.keypressed(key)
         leaveShop()
     elseif key == "space" and (state == "ready" or state == "farkled") then
         for _, d in ipairs(dice) do d.kept, d.selected = false, false end
-        roundScore = 0
+        roundScore, scoreIndex = 0, 0
         rollFree()
     elseif key == "return" and state == "selecting" then
         confirmSelection()
